@@ -9,8 +9,9 @@ interface Message {
 }
 
 class Endpoint {
-  isProvider: boolean;
+  isAlive: boolean;
   constructor(public id: string, private ws: WebSocket) {
+    this.isAlive = true;
   }
   send(msg: Message) {
     const headerStr = JSON.stringify(msg.header);
@@ -30,6 +31,11 @@ class Endpoint {
     }
     else this.ws.send(headerStr);
   }
+  keepAlive() {
+    if (!this.isAlive) return this.ws.terminate();
+    this.isAlive = false;
+    this.ws.ping();
+  }
 }
 
 interface Provider {
@@ -40,8 +46,10 @@ interface Provider {
 
 class ProviderRegistry {
   readonly registry: {[key: string]: Provider[]};
+  readonly endpoints: Set<Endpoint>;
   constructor() {
     this.registry = {};
+    this.endpoints = new Set<Endpoint>();
   }
   add(endpoint: Endpoint, name: string, capabilities: string[], priority: number) {
     const list = this.registry[name] || (this.registry[name] = []);
@@ -54,10 +62,12 @@ class ProviderRegistry {
     };
     if (index != -1) list.splice(index, 0, provider);
     else list.push(provider);
+    this.endpoints.add(endpoint);
   }
   remove(endpoint: Endpoint) {
-    for (const name in this.registry) {
-      this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
+    if (this.endpoints.has(endpoint)) {
+      for (const name in this.registry) this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
+      this.endpoints.delete(endpoint);
     }
   }
   find(name: string, requiredCapabilities: string[]): Provider[] {
@@ -119,9 +129,11 @@ wss.on("connection", function(ws: WebSocket) {
     }
   })
 
+  ws.on("pong", () => endpoint.isAlive = true);
+
   ws.on("close", function() {
     delete endpoints[endpointId];
-    if (endpoint.isProvider) providerRegistry.remove(endpoint);
+    providerRegistry.remove(endpoint);
   })
 
   function handleForward(msg: Message) {
@@ -144,13 +156,9 @@ wss.on("connection", function(ws: WebSocket) {
   }
 
   function handleAdvertiseRequest(msg: Message) {
-    if (endpoint.isProvider) {
-      providerRegistry.remove(endpoint);
-      endpoint.isProvider = false;
-    }
+    providerRegistry.remove(endpoint);
     if (msg.header.services) {
       for (const service of msg.header.services) providerRegistry.add(endpoint, service.name, service.capabilities, service.priority);
-      endpoint.isProvider = true;
     }
     if (msg.header.id) endpoint.send({header: {id: msg.header.id, type: "SbAdvertiseResponse"}});
   }
@@ -175,6 +183,18 @@ wss.on("connection", function(ws: WebSocket) {
     }
   }
 })
+
+const keepAliveTimers = [
+  setInterval(() => {
+    for (const endpoint of providerRegistry.endpoints) endpoint.keepAlive();
+  },
+  process.env.PROVIDER_KEEP_ALIVE),
+
+  setInterval(() => {
+    for (const id in endpoints) if (!providerRegistry.endpoints.has(endpoints[id])) endpoints[id].keepAlive();
+  },
+  process.env.NON_PROVIDER_KEEP_ALIVE)
+]
 
 
 function messageFromString(str: string): Message {

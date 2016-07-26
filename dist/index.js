@@ -7,6 +7,7 @@ class Endpoint {
     constructor(id, ws) {
         this.id = id;
         this.ws = ws;
+        this.isAlive = true;
     }
     send(msg) {
         const headerStr = JSON.stringify(msg.header);
@@ -28,10 +29,17 @@ class Endpoint {
         else
             this.ws.send(headerStr);
     }
+    keepAlive() {
+        if (!this.isAlive)
+            return this.ws.terminate();
+        this.isAlive = false;
+        this.ws.ping();
+    }
 }
 class ProviderRegistry {
     constructor() {
         this.registry = {};
+        this.endpoints = new Set();
     }
     add(endpoint, name, capabilities, priority) {
         const list = this.registry[name] || (this.registry[name] = []);
@@ -46,10 +54,13 @@ class ProviderRegistry {
             list.splice(index, 0, provider);
         else
             list.push(provider);
+        this.endpoints.add(endpoint);
     }
     remove(endpoint) {
-        for (const name in this.registry) {
-            this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
+        if (this.endpoints.has(endpoint)) {
+            for (const name in this.registry)
+                this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
+            this.endpoints.delete(endpoint);
         }
     }
     find(name, requiredCapabilities) {
@@ -106,10 +117,10 @@ wss.on("connection", function (ws) {
                 console.error(err.message, msg.header);
         }
     });
+    ws.on("pong", () => endpoint.isAlive = true);
     ws.on("close", function () {
         delete endpoints[endpointId];
-        if (endpoint.isProvider)
-            providerRegistry.remove(endpoint);
+        providerRegistry.remove(endpoint);
     });
     function handleForward(msg) {
         const target = endpoints[msg.header.to];
@@ -133,14 +144,10 @@ wss.on("connection", function (ws) {
             throw new Error("No provider");
     }
     function handleAdvertiseRequest(msg) {
-        if (endpoint.isProvider) {
-            providerRegistry.remove(endpoint);
-            endpoint.isProvider = false;
-        }
+        providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
                 providerRegistry.add(endpoint, service.name, service.capabilities, service.priority);
-            endpoint.isProvider = true;
         }
         if (msg.header.id)
             endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
@@ -166,6 +173,17 @@ wss.on("connection", function (ws) {
         }
     }
 });
+const keepAliveTimers = [
+    setInterval(() => {
+        for (const endpoint of providerRegistry.endpoints)
+            endpoint.keepAlive();
+    }, process.env.PROVIDER_KEEP_ALIVE),
+    setInterval(() => {
+        for (const id in endpoints)
+            if (!providerRegistry.endpoints.has(endpoints[id]))
+                endpoints[id].keepAlive();
+    }, process.env.NON_PROVIDER_KEEP_ALIVE)
+];
 function messageFromString(str) {
     if (str[0] != '{')
         throw new Error("Message doesn't have JSON header");

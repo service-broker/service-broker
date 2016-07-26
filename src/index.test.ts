@@ -13,6 +13,7 @@ const providerRegistry = app.__get__("providerRegistry");
 
 afterAll(() => {
     app.__get__("wss").close();
+    app.__get__("keepAliveTimers").forEach(clearInterval);
 })
 
 describe("test helper functions", () => {
