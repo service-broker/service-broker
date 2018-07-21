@@ -23,14 +23,16 @@ A service provider advertises its services by sending an empty-payload message t
         },
         {
             name: "service-2",
-            capabilities: undefined,   //all capabilities are supported
+            capabilities: [...],
             priority: 20
         }
     ]
 }
 ```
 
-> The broker will always pick the provider with a highest priority. If two providers specify the same priority, one will be randomly chosen.
+> For a particular service, the broker will always pick the provider with the highest priority. If two providers specify the same priority, one will be randomly chosen.
+
+> A provider can indicate it supports ANY capabilities by omitting the `capabilities` field. 
 
 When the broker forwards a client's request to the provider, it will add a `from` header containing the client's endpoint-id:
 ```javascript
@@ -52,12 +54,12 @@ To request service, a client sends a message to the broker.  The message itself 
 {
     service: {
         name: "service-name",
-        capabilities: ["capability-1", "capability-2", ...]     //optional
+        capabilities: ["capability-1", "capability-2", ...]
     }
 }
 ```
 
-> The broker will pick a service provider who supports ALL of the listed capabilities.  If `capabilities` is omitted, any provider will match.
+> The broker will pick a service provider who supports ALL of the listed capabilities.
 
 When the broker forwards a provider's response to the client, it will add a `from` header containing the provider's endpoint-id:
 ```javascript
