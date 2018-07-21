@@ -123,56 +123,68 @@ describe("test service provider", () => {
         yield providersAdvertise();
         let header;
         //request tts-v1 should pick p2 (higher priority)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 40,
             service: { name: "tts", capabilities: ["v1"] }
-        }));
+        };
+        c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p2)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: "This is the text payload"
         });
         //request transcode-mp3 should pick p1 (higher priory)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 50,
             service: { name: "transcode", capabilities: ["mp3"] }
-        }));
+        };
+        c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: Buffer.from("This is the binary payload")
         });
         //request transcode-[no capabilities] should pick p1 (higher priory)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 60,
             service: { name: "transcode" }
-        }));
+        };
+        c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: Buffer.from("This is the binary payload")
         });
     }));
     test("request only match", () => __awaiter(this, void 0, void 0, function* () {
         yield providersAdvertise();
         let header;
         //request tts-v2 should pick p1 (only match)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 50,
             service: { name: "tts", capabilities: ["v2"] }
-        }));
+        };
+        c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: "This is the text payload"
         });
         //request tts-v1,v2 should pick p1 (only match)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 60,
             service: { name: "tts", capabilities: ["v1", "v2"] }
-        }));
+        };
+        c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: "This is the text payload"
         });
         //request transcode-mp3,hifi should pick p2 (only match)
-        c1.send(JSON.stringify(header = {
+        header = {
             id: 70,
             service: { name: "transcode", capabilities: ["mp3", "hifi"] }
-        }));
+        };
+        c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p2)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header)
+            header: Object.assign({ from: expect.any(String) }, header),
+            payload: Buffer.from("This is the binary payload")
         });
     }));
     test("request no match", () => __awaiter(this, void 0, void 0, function* () {
