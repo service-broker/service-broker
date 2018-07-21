@@ -47,7 +47,11 @@ class ProviderRegistry {
     const list = this.registry[name] || (this.registry[name] = []);
     //keep sorted in descending priority
     const index = list.findIndex(x => x.priority < priority);
-    const provider: Provider = {endpoint, capabilities: new Set(capabilities), priority};
+    const provider: Provider = {
+      endpoint,
+      capabilities: capabilities && new Set(capabilities),
+      priority
+    };
     if (index != -1) list.splice(index, 0, provider);
     else list.push(provider);
   }
@@ -60,7 +64,7 @@ class ProviderRegistry {
   find(name: string, requiredCapabilities: string[]): Provider {
     const list = this.registry[name];
     if (list) {
-      const capableProviders = list.filter(provider => requiredCapabilities.every(x => provider.capabilities.has(x)));
+      const capableProviders = !requiredCapabilities ? list : list.filter(provider => requiredCapabilities.every(x => !provider.capabilities || provider.capabilities.has(x)));
       if (capableProviders.length) {
         const candidates = capableProviders.filter(x => x.priority == capableProviders[0].priority);
         return pickRandom(candidates);

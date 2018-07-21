@@ -79,7 +79,10 @@ describe("test service provider", () => {
         p1.send(JSON.stringify({
             id:2,
             type:"AdvertiseRequest",
-            services:[{name:"tts", capabilities:["v1","v2"], priority:3}]
+            services:[
+                {name:"tts", capabilities:["v1","v2"], priority:3},
+                {name:"transcode", capabilities:["mp3","mp4"], priority:10}
+            ]
         }));
         expect(await receive(p1)).toEqual({
             header:{id:2}
@@ -89,7 +92,10 @@ describe("test service provider", () => {
         p2.send(JSON.stringify({
             id:3,
             type:"AdvertiseRequest",
-            services:[{name:"tts", capabilities:["v1","v3"], priority:6}]
+            services:[
+                {name:"tts", capabilities:["v1","v3"], priority:6},
+                {name:"transcode"}
+            ]
         }));
         expect(await receive(p2)).toEqual({
             header:{id:3}
@@ -98,6 +104,10 @@ describe("test service provider", () => {
             tts: [
                 expect.objectContaining({capabilities:new Set(["v1","v3"]), priority:6}),
                 expect.objectContaining({capabilities:new Set(["v1","v2"]), priority:3})
+            ],
+            transcode: [
+                expect.objectContaining({capabilities:new Set(["mp3","mp4"]), priority:10}),
+                expect.objectContaining({capabilities:undefined, priority:undefined})
             ]
         });
     }
@@ -109,36 +119,65 @@ describe("test service provider", () => {
 
     test("request higher priority", async () => {
         await providersAdvertise();
+        let header;
 
-        //request v1 should pick p2 (higher priority)
-        c1.send(JSON.stringify({
+        //request tts-v1 should pick p2 (higher priority)
+        c1.send(JSON.stringify(header = {
             id:40,
             service:{name:"tts", capabilities:["v1"]}
         }));
         expect(await receive(p2)).toEqual({
-            header:{from:expect.any(String), id:40, service:expect.anything()}
+            header: Object.assign({from:expect.any(String)}, header)
         });
+
+        //request transcode-mp3 should pick p1 (higher priory)
+        c1.send(JSON.stringify(header = {
+            id:50,
+            service:{name:"transcode", capabilities:["mp3"]}
+        }));
+        expect(await receive(p1)).toEqual({
+            header: Object.assign({from:expect.any(String)}, header)
+        })
+
+        //request transcode-[no capabilities] should pick p1 (higher priory)
+        c1.send(JSON.stringify(header = {
+            id:60,
+            service:{name:"transcode"}
+        }));
+        expect(await receive(p1)).toEqual({
+            header: Object.assign({from:expect.any(String)}, header)
+        })
     })
 
     test("request only match", async () => {
         await providersAdvertise();
+        let header;
 
-        //request v2 should pick p1 (only match)
-        c1.send(JSON.stringify({
+        //request tts-v2 should pick p1 (only match)
+        c1.send(JSON.stringify(header = {
             id:50,
             service:{name:"tts", capabilities:["v2"]}
         }));
         expect(await receive(p1)).toEqual({
-            header:{from:expect.any(String), id:50, service:expect.anything()}
+            header: Object.assign({from:expect.any(String)}, header)
         });
 
-        //request v1,v2 should pick p1 (only match)
-        c1.send(JSON.stringify({
+        //request tts-v1,v2 should pick p1 (only match)
+        c1.send(JSON.stringify(header = {
             id:60,
             service:{name:"tts", capabilities:["v1", "v2"]}
         }));
         expect(await receive(p1)).toEqual({
-            header:{from:expect.any(String), id:60, service:expect.anything()}
+            header: Object.assign({from:expect.any(String)}, header)
+        });
+
+        //request transcode-mp3,hifi should pick p2 (only match)
+        c1.send(JSON.stringify(header = {
+            id:70,
+            service:{name:"transcode", capabilities:["mp3", "hifi"]}
+        }));
+        expect(await receive(p2)).toEqual({
+            header: Object.assign({from:expect.any(String)}, header)
         });
     })
 
