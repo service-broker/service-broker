@@ -81,7 +81,8 @@ describe("test service provider", () => {
             type:"AdvertiseRequest",
             services:[
                 {name:"tts", capabilities:["v1","v2"], priority:3},
-                {name:"transcode", capabilities:["mp3","mp4"], priority:10}
+                {name:"transcode", capabilities:["mp3","mp4"], priority:10},
+                {name:"#log", capabilities:["err","warn","info"]}
             ]
         }));
         expect(await receive(p1)).toEqual({
@@ -94,22 +95,21 @@ describe("test service provider", () => {
             type:"AdvertiseRequest",
             services:[
                 {name:"tts", capabilities:["v1","v3"], priority:6},
-                {name:"transcode"}
+                {name:"transcode"},
+                {name:"#log", capabilities:["err"]}
             ]
         }));
         expect(await receive(p2)).toEqual({
             header:{id:3}
         });
-        expect(providerRegistry.registry).toEqual({
-            tts: [
-                expect.objectContaining({capabilities:new Set(["v1","v3"]), priority:6}),
-                expect.objectContaining({capabilities:new Set(["v1","v2"]), priority:3})
-            ],
-            transcode: [
-                expect.objectContaining({capabilities:new Set(["mp3","mp4"]), priority:10}),
-                expect.objectContaining({capabilities:undefined, priority:undefined})
-            ]
-        });
+
+        //verify providers registry is correct
+        expect(providerRegistry.registry["tts"]).toHaveLength(2);
+        expect(providerRegistry.registry["tts"].map((x: any) => x.priority)).toEqual([6,3]);
+        expect(providerRegistry.registry["transcode"]).toHaveLength(2);
+        expect(providerRegistry.registry["transcode"].map((x: any) => x.priority)).toEqual([10, undefined]);
+        expect(providerRegistry.registry["#log"]).toHaveLength(2);
+        expect(providerRegistry.registry["#log"].map((x: any) => x.priority)).toEqual([undefined, undefined]);
     }
 
     test("bad request", async () => {
@@ -117,7 +117,7 @@ describe("test service provider", () => {
         expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
     })
 
-    test("request higher priority", async () => {
+    test("request success", async () => {
         await providersAdvertise();
         let header;
 
@@ -153,11 +153,6 @@ describe("test service provider", () => {
             header: Object.assign({from:expect.any(String)}, header),
             payload: Buffer.from("This is the binary payload")
         })
-    })
-
-    test("request only match", async () => {
-        await providersAdvertise();
-        let header;
 
         //request tts-v2 should pick p1 (only match)
         header = {
@@ -191,10 +186,21 @@ describe("test service provider", () => {
             header: Object.assign({from:expect.any(String)}, header),
             payload: Buffer.from("This is the binary payload")
         });
-    })
 
-    test("request no match", async () => {
-        await providersAdvertise();
+        //request log-err should pick p1,p2 (multiple match)
+        header = {
+            id:10,
+            service:{name:"#log", capabilities:["err"]}
+        }
+        c1.send(JSON.stringify(header) + "\nThis is the text payload");
+        expect(await receive(p1)).toEqual({
+            header: Object.assign({from:expect.any(String)}, header),
+            payload: "This is the text payload"
+        })
+        expect(await receive(p2)).toEqual({
+            header: Object.assign({from:expect.any(String)}, header),
+            payload: "This is the text payload"
+        })
 
         //request v2,v3 should error out (no match)
         c1.send(JSON.stringify({
@@ -213,6 +219,12 @@ describe("test service provider", () => {
         expect(await receive(c1)).toEqual({
             header:{id:80, error:"No provider"}
         });
+
+        //check no more messages pending
+        p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
+        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
+        p2.send(JSON.stringify({id:1, type:"UnknownRequest"}));
+        expect(await receive(p2)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
     })
 })
 

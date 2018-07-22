@@ -77,7 +77,7 @@ To send subsequent messages to the _same_ provider, the client can specify the p
 
 Clients can, of course, send messages to other clients by specifying their endpoint-id's in the `to` header.  How they discover each other's endpoint-id's is entirely up to the service providers.
 
-#### Delivery Failure
+### Delivery Failure
 When the broker fails to deliver a message for any reason, if the message contains an `id` header, the broker will send the following notification to the sender:
 ```javascript
 {
@@ -85,3 +85,6 @@ When the broker fails to deliver a message for any reason, if the message contai
     error: "reason for delivery failure"
 }
 ```
+
+### PUB/SUB
+When the service's name begins with the character `#`, the broker behaves slightly differently.  Rather than choosing randomly from the list of qualified providers having the same priority, the broker will broadcast the client's message to all of them.

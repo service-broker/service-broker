@@ -61,14 +61,12 @@ class ProviderRegistry {
       if (index != -1) this.registry[name].splice(index, 1);
     }
   }
-  find(name: string, requiredCapabilities: string[]): Provider {
+  find(name: string, requiredCapabilities: string[]): Provider[] {
     const list = this.registry[name];
     if (list) {
-      const capableProviders = !requiredCapabilities ? list : list.filter(provider => requiredCapabilities.every(x => !provider.capabilities || provider.capabilities.has(x)));
-      if (capableProviders.length) {
-        const candidates = capableProviders.filter(x => x.priority == capableProviders[0].priority);
-        return pickRandom(candidates);
-      }
+      const isCapable = (provider: Provider) => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x));
+      const capableProviders = !requiredCapabilities ? list : list.filter(isCapable);
+      if (capableProviders.length) return capableProviders.filter(x => x.priority == capableProviders[0].priority);
       else return null;
     }
     else return null;
@@ -123,10 +121,11 @@ wss.on("connection", function(ws: WebSocket) {
   }
 
   function handleServiceRequest(msg: Message) {
-    const provider = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
-    if (provider) {
+    const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+    if (providers) {
       msg.header.from = endpointId;
-      provider.endpoint.send(msg);
+      if (msg.header.service.name.startsWith("#")) providers.forEach(x => x.endpoint.send(msg));
+      else pickRandom(providers).endpoint.send(msg);
     }
     else throw new Error("No provider");
   }
