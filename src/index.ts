@@ -10,7 +10,7 @@ interface Message {
 
 class Endpoint {
   isProvider: boolean;
-  constructor(private ws: WebSocket) {
+  constructor(public id: string, private ws: WebSocket) {
   }
   send(msg: Message) {
     const headerStr = JSON.stringify(msg.header);
@@ -57,8 +57,7 @@ class ProviderRegistry {
   }
   remove(endpoint: Endpoint) {
     for (const name in this.registry) {
-      const index = this.registry[name].findIndex(x => x.endpoint == endpoint);
-      if (index != -1) this.registry[name].splice(index, 1);
+      this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
     }
   }
   find(name: string, requiredCapabilities: string[]): Provider[] {
@@ -73,16 +72,28 @@ class ProviderRegistry {
   }
 }
 
+interface Status {
+  numEndpoints: number;
+  providerRegistry: Array<{
+    service: string,
+    providers: Array<{
+      endpointId: string,
+      capabilities: string[],
+      priority: number
+    }>
+  }>
+}
+
 
 dotenv.config();
 
 const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({port: Number(process.env.PORT)});
+const wss = new WebSocket.Server({port: Number(process.env.PORT)}, () => console.log(`Service broker started on ${process.env.PORT}`));
 
 wss.on("connection", function(ws: WebSocket) {
   const endpointId = generateId();
-  const endpoint = endpoints[endpointId] = new Endpoint(ws);
+  const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
 
   ws.on("message", function(data: WebSocket.Data) {
     let msg: Message;
@@ -98,7 +109,8 @@ wss.on("connection", function(ws: WebSocket) {
     try {
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg);
-      else if (msg.header.type == "AdvertiseRequest") handleAdvertiseRequest(msg);
+      else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
+      else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
@@ -108,6 +120,7 @@ wss.on("connection", function(ws: WebSocket) {
   })
 
   ws.on("close", function() {
+    delete endpoints[endpointId];
     if (endpoint.isProvider) providerRegistry.remove(endpoint);
   })
 
@@ -129,7 +142,7 @@ wss.on("connection", function(ws: WebSocket) {
     }
     else throw new Error("No provider");
   }
-  
+
   function handleAdvertiseRequest(msg: Message) {
     if (endpoint.isProvider) {
       providerRegistry.remove(endpoint);
@@ -139,7 +152,27 @@ wss.on("connection", function(ws: WebSocket) {
       for (const service of msg.header.services) providerRegistry.add(endpoint, service.name, service.capabilities, service.priority);
       endpoint.isProvider = true;
     }
-    if (msg.header.id) endpoint.send({header: {id: msg.header.id}});
+    if (msg.header.id) endpoint.send({header: {id: msg.header.id, type: "SbAdvertiseResponse"}});
+  }
+
+  function handleStatusRequest(msg: Message) {
+    const status: Status = {
+      numEndpoints: Object.keys(endpoints).length,
+      providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
+        service: name,
+        providers: providerRegistry.registry[name].map(provider => ({
+          endpointId: provider.endpoint.id,
+          capabilities: Array.from(provider.capabilities),
+          priority: provider.priority
+        }))
+      }))
+    }
+    if (msg.header.id) endpoint.send({header: {id: msg.header.id, type: "SbStatusResponse"}, payload: JSON.stringify(status)});
+    else {
+      console.log("numEndpoints:", status.numEndpoints);
+      for (const entry of status.providerRegistry)
+        console.log(entry.service, entry.providers);
+    }
   }
 })
 

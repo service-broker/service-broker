@@ -4,7 +4,8 @@ const WebSocket = require("ws");
 const dotenv = require("dotenv");
 const shortid_1 = require("shortid");
 class Endpoint {
-    constructor(ws) {
+    constructor(id, ws) {
+        this.id = id;
         this.ws = ws;
     }
     send(msg) {
@@ -48,9 +49,7 @@ class ProviderRegistry {
     }
     remove(endpoint) {
         for (const name in this.registry) {
-            const index = this.registry[name].findIndex(x => x.endpoint == endpoint);
-            if (index != -1)
-                this.registry[name].splice(index, 1);
+            this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
         }
     }
     find(name, requiredCapabilities) {
@@ -70,10 +69,10 @@ class ProviderRegistry {
 dotenv.config();
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({ port: Number(process.env.PORT) });
+const wss = new WebSocket.Server({ port: Number(process.env.PORT) }, () => console.log(`Service broker started on ${process.env.PORT}`));
 wss.on("connection", function (ws) {
     const endpointId = shortid_1.generate();
-    const endpoint = endpoints[endpointId] = new Endpoint(ws);
+    const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
     ws.on("message", function (data) {
         let msg;
         try {
@@ -93,8 +92,10 @@ wss.on("connection", function (ws) {
                 handleForward(msg);
             else if (msg.header.service)
                 handleServiceRequest(msg);
-            else if (msg.header.type == "AdvertiseRequest")
+            else if (msg.header.type == "SbAdvertiseRequest")
                 handleAdvertiseRequest(msg);
+            else if (msg.header.type == "SbStatusRequest")
+                handleStatusRequest(msg);
             else
                 throw new Error("Don't know what to do with message");
         }
@@ -106,6 +107,7 @@ wss.on("connection", function (ws) {
         }
     });
     ws.on("close", function () {
+        delete endpoints[endpointId];
         if (endpoint.isProvider)
             providerRegistry.remove(endpoint);
     });
@@ -141,7 +143,27 @@ wss.on("connection", function (ws) {
             endpoint.isProvider = true;
         }
         if (msg.header.id)
-            endpoint.send({ header: { id: msg.header.id } });
+            endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
+    }
+    function handleStatusRequest(msg) {
+        const status = {
+            numEndpoints: Object.keys(endpoints).length,
+            providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
+                service: name,
+                providers: providerRegistry.registry[name].map(provider => ({
+                    endpointId: provider.endpoint.id,
+                    capabilities: Array.from(provider.capabilities),
+                    priority: provider.priority
+                }))
+            }))
+        };
+        if (msg.header.id)
+            endpoint.send({ header: { id: msg.header.id, type: "SbStatusResponse" }, payload: JSON.stringify(status) });
+        else {
+            console.log("numEndpoints:", status.numEndpoints);
+            for (const entry of status.providerRegistry)
+                console.log(entry.service, entry.providers);
+        }
     }
 });
 function messageFromString(str) {

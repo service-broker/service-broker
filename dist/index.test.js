@@ -82,7 +82,7 @@ describe("test service provider", () => {
             //provider1 advertise
             p1.send(JSON.stringify({
                 id: 2,
-                type: "AdvertiseRequest",
+                type: "SbAdvertiseRequest",
                 services: [
                     { name: "tts", capabilities: ["v1", "v2"], priority: 3 },
                     { name: "transcode", capabilities: ["mp3", "mp4"], priority: 10 },
@@ -90,12 +90,12 @@ describe("test service provider", () => {
                 ]
             }));
             expect(yield receive(p1)).toEqual({
-                header: { id: 2 }
+                header: { id: 2, type: "SbAdvertiseResponse" }
             });
             //provider2 advertise
             p2.send(JSON.stringify({
                 id: 3,
-                type: "AdvertiseRequest",
+                type: "SbAdvertiseRequest",
                 services: [
                     { name: "tts", capabilities: ["v1", "v3"], priority: 6 },
                     { name: "transcode" },
@@ -103,7 +103,7 @@ describe("test service provider", () => {
                 ]
             }));
             expect(yield receive(p2)).toEqual({
-                header: { id: 3 }
+                header: { id: 3, type: "SbAdvertiseResponse" }
             });
             //verify providers registry is correct
             expect(providerRegistry.registry["tts"]).toHaveLength(2);

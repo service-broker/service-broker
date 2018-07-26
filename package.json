@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "test": "jest"
+    "test": "jest",
+    "deploy-to": "rsync -avz --exclude=node_modules --exclude=.git ."
   },
   "author": "Hai Phan",
   "license": "ISC",

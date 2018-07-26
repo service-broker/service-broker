@@ -14,7 +14,7 @@ We use WebSocket as the base protocol.  Each message is a WebSocket message and 
 A service provider advertises its services by sending an empty-payload message to the broker with the following header fields:
 ```javascript
 {
-    type: "AdvertiseRequest",
+    type: "SbAdvertiseRequest",
     services: [
         {
             name: "service-1",
