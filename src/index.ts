@@ -231,3 +231,8 @@ function pickRandom<T>(list: Array<T>): T {
   const randomIndex = Math.floor(Math.random() *list.length);
   return list[randomIndex];
 }
+
+function shutdown() {
+  wss.close();
+  keepAliveTimers.forEach(clearInterval);
+}

@@ -17,10 +17,8 @@ const pickRandom = app.__get__("pickRandom");
 const messageFromString = app.__get__("messageFromString");
 const messageFromBuffer = app.__get__("messageFromBuffer");
 const providerRegistry = app.__get__("providerRegistry");
-afterAll(() => {
-    app.__get__("wss").close();
-    app.__get__("keepAliveTimers").forEach(clearInterval);
-});
+const shutdown = app.__get__("shutdown");
+afterAll(shutdown);
 describe("test helper functions", () => {
     test("pickRandom", () => {
         const list = [1, 2, 3, 4, 5, 6, 7];

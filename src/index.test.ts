@@ -9,12 +9,10 @@ const pickRandom = app.__get__("pickRandom");
 const messageFromString = app.__get__("messageFromString");
 const messageFromBuffer = app.__get__("messageFromBuffer");
 const providerRegistry = app.__get__("providerRegistry");
+const shutdown = app.__get__("shutdown");
 
 
-afterAll(() => {
-    app.__get__("wss").close();
-    app.__get__("keepAliveTimers").forEach(clearInterval);
-})
+afterAll(shutdown);
 
 describe("test helper functions", () => {
     test("pickRandom", () => {
