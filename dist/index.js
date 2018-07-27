@@ -159,7 +159,7 @@ wss.on("connection", function (ws) {
                 service: name,
                 providers: providerRegistry.registry[name].map(provider => ({
                     endpointId: provider.endpoint.id,
-                    capabilities: Array.from(provider.capabilities),
+                    capabilities: provider.capabilities && Array.from(provider.capabilities),
                     priority: provider.priority
                 }))
             }))
