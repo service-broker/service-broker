@@ -184,6 +184,7 @@ const keepAliveTimers = [
                 endpoints[id].keepAlive();
     }, process.env.NON_PROVIDER_KEEP_ALIVE)
 ];
+process.on('uncaughtException', console.error);
 function messageFromString(str) {
     if (str[0] != '{')
         throw new Error("Message doesn't have JSON header");

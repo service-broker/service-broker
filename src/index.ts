@@ -196,6 +196,8 @@ const keepAliveTimers = [
   process.env.NON_PROVIDER_KEEP_ALIVE)
 ]
 
+process.on('uncaughtException', console.error);
+
 
 function messageFromString(str: string): Message {
   if (str[0] != '{') throw new Error("Message doesn't have JSON header");
