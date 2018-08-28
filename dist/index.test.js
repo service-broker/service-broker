@@ -10,8 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 const rewire = require("rewire");
 const WebSocket = require("ws");
-const dotenv = require("dotenv");
-dotenv.config();
+const config_1 = require("./config");
 const app = rewire("./index.js");
 const pickRandom = app.__get__("pickRandom");
 const messageFromString = app.__get__("messageFromString");
@@ -45,9 +44,9 @@ describe("test service provider", () => {
     let p2;
     let c1;
     beforeEach(() => __awaiter(this, void 0, void 0, function* () {
-        p1 = new WebSocket(`ws://localhost:${process.env.PORT}`);
-        p2 = new WebSocket(`ws://localhost:${process.env.PORT}`);
-        c1 = new WebSocket(`ws://localhost:${process.env.PORT}`);
+        p1 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
+        p2 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
+        c1 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
         yield Promise.all([
             new Promise(fulfill => p1.once("open", fulfill)),
             new Promise(fulfill => p2.once("open", fulfill)),

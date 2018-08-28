@@ -1,8 +1,6 @@
 import rewire = require('rewire');
 import * as WebSocket from 'ws';
-import * as dotenv from 'dotenv';
-
-dotenv.config();
+import config from './config';
 
 const app = rewire("./index.js");
 const pickRandom = app.__get__("pickRandom");
@@ -43,9 +41,9 @@ describe("test service provider", () => {
     let c1: WebSocket;
 
     beforeEach(async () => {
-        p1 = new WebSocket(`ws://localhost:${process.env.PORT}`);
-        p2 = new WebSocket(`ws://localhost:${process.env.PORT}`);
-        c1 = new WebSocket(`ws://localhost:${process.env.PORT}`);
+        p1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
+        p2 = new WebSocket(`ws://localhost:${config.listeningPort}`);
+        c1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
         await Promise.all([
             new Promise(fulfill => p1.once("open", fulfill)),
             new Promise(fulfill => p2.once("open", fulfill)),

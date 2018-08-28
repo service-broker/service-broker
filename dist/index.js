@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const WebSocket = require("ws");
-const dotenv = require("dotenv");
 const shortid_1 = require("shortid");
+const config_1 = require("./config");
 class Endpoint {
     constructor(id, ws) {
         this.id = id;
@@ -77,10 +77,9 @@ class ProviderRegistry {
             return null;
     }
 }
-dotenv.config();
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({ port: Number(process.env.PORT) }, () => console.log(`Service broker started on ${process.env.PORT}`));
+const wss = new WebSocket.Server({ port: config_1.default.listeningPort }, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
 wss.on("connection", function (ws) {
     const endpointId = shortid_1.generate();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
@@ -107,6 +106,8 @@ wss.on("connection", function (ws) {
                 handleAdvertiseRequest(msg);
             else if (msg.header.type == "SbStatusRequest")
                 handleStatusRequest(msg);
+            else if (msg.header.type == "SbEndpointStatusRequest")
+                handleEndpointStatusRequest(msg);
             else
                 throw new Error("Don't know what to do with message");
         }
@@ -172,17 +173,26 @@ wss.on("connection", function (ws) {
                 console.log(entry.service, entry.providers);
         }
     }
+    function handleEndpointStatusRequest(msg) {
+        endpoint.send({
+            header: {
+                id: msg.header.id,
+                type: "SbEndpointStatusResponse",
+                endpointStatuses: msg.header.endpointIds.map((id) => endpoints[id] != null)
+            }
+        });
+    }
 });
 const keepAliveTimers = [
     setInterval(() => {
         for (const endpoint of providerRegistry.endpoints)
             endpoint.keepAlive();
-    }, process.env.PROVIDER_KEEP_ALIVE),
+    }, config_1.default.providerKeepAlive),
     setInterval(() => {
         for (const id in endpoints)
             if (!providerRegistry.endpoints.has(endpoints[id]))
                 endpoints[id].keepAlive();
-    }, process.env.NON_PROVIDER_KEEP_ALIVE)
+    }, config_1.default.nonProviderKeepAlive)
 ];
 process.on('uncaughtException', console.error);
 function messageFromString(str) {

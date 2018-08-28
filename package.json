@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest",
+    "start": "node dist/index",
     "deploy-to": "rsync -avz --exclude=node_modules --exclude=.git ."
   },
   "author": "Hai Phan",

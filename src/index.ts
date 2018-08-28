@@ -1,6 +1,6 @@
 import * as WebSocket from 'ws';
-import * as dotenv from 'dotenv';
 import { generate as generateId } from 'shortid';
+import config from "./config"
 
 
 interface Message {
@@ -95,11 +95,9 @@ interface Status {
 }
 
 
-dotenv.config();
-
 const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({port: Number(process.env.PORT)}, () => console.log(`Service broker started on ${process.env.PORT}`));
+const wss = new WebSocket.Server({port: config.listeningPort}, () => console.log(`Service broker started on ${config.listeningPort}`));
 
 wss.on("connection", function(ws: WebSocket) {
   const endpointId = generateId();
@@ -121,6 +119,7 @@ wss.on("connection", function(ws: WebSocket) {
       else if (msg.header.service) handleServiceRequest(msg);
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
       else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
+      else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
@@ -182,18 +181,28 @@ wss.on("connection", function(ws: WebSocket) {
         console.log(entry.service, entry.providers);
     }
   }
+
+  function handleEndpointStatusRequest(msg: Message) {
+    endpoint.send({
+      header: {
+        id: msg.header.id,
+        type: "SbEndpointStatusResponse",
+        endpointStatuses: msg.header.endpointIds.map((id: string) => endpoints[id] != null)
+      }
+    })
+  }
 })
 
 const keepAliveTimers = [
   setInterval(() => {
     for (const endpoint of providerRegistry.endpoints) endpoint.keepAlive();
   },
-  process.env.PROVIDER_KEEP_ALIVE),
+  config.providerKeepAlive),
 
   setInterval(() => {
     for (const id in endpoints) if (!providerRegistry.endpoints.has(endpoints[id])) endpoints[id].keepAlive();
   },
-  process.env.NON_PROVIDER_KEEP_ALIVE)
+  config.nonProviderKeepAlive)
 ]
 
 process.on('uncaughtException', console.error);
