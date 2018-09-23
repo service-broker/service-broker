@@ -1,7 +1,7 @@
 [![Build Status](https://travis-ci.org/ken107/service-broker.svg?branch=master)](https://travis-ci.org/ken107/service-broker)
 
 ### What Is This?
-In microservices architecture, independent service providers connect to a central service broker and advertise their services.  When a client needs some service, it sends a request to the service broker, who picks a qualified provider and forwards the request to it.  All communication between client and provider go through the broker.  This module implements a service broker for NodeJS.
+In this microservices architecture, independent service providers connect to a central service broker and advertise their services.  When a client needs some service, it sends a request to the service broker, who picks a qualified provider and forwards the request to it.  All communication between client and provider go through the broker.  This module implements a service broker for NodeJS.
 
 ### Starting the Service Broker
 To start the broker: `node ./dist/index.js`.
