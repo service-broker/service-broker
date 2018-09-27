@@ -108,15 +108,15 @@ const server = createServer(app);
 const pending: {[key: string]: (res: Message) => void} = {};
 
 app.get("/", (req, res) => res.end("Healthcheck OK"));
-app.options("/", cors(config.corsOptions));
-app.post("/", cors(config.corsOptions), onHttpPost);
+app.options("/:service", cors(config.corsOptions));
+app.post("/:service", cors(config.corsOptions), onHttpPost);
 
 server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
 
 
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
-    const service = req.query.service;
+    const service = req.params.service;
     const capabilities = req.query.capabilities && req.query.capabilities.split(',');
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
     const payload = req.is("text/*") ? await getStream(req) : await getStream.buffer(req);

@@ -99,7 +99,7 @@ When the service's name begins with the character `#`, the broker behaves slight
 ### HTTP Adapter
 The broker can accept service requests via HTTP on its listening port.  The HTTP request must have the following format:
 ```
-POST /?service=<SERVICE-NAME>&capabilities=<COMMA-SEP-LIST> HTTP/1.1
+POST /<SERVICE-NAME>?capabilities=<COMMA-SEP-LIST> HTTP/1.1
 x-service-request-header: <OPTIONAL JSON-OBJECT>
 Content-Type: <MIME-OF-PAYLOAD>
 
