@@ -107,7 +107,7 @@ const app = express();
 const server = createServer(app);
 const pending: {[key: string]: (res: Message) => void} = {};
 
-app.get("/", (req, res) => res.end("Good"));
+app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/", cors(config.corsOptions));
 app.post("/", cors(config.corsOptions), onHttpPost);
 

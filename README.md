@@ -7,6 +7,13 @@ In this microservices architecture, independent service providers connect to a c
 To start the broker: `node ./dist/index.js`.
 To configure the broker: `vi .env`.
 
+Environment Var         | Type   | Description
+----------------------- | ------ | --------------------------------------------------
+LISTENING_PORT          | Number | HTTP/WebSocket listening port
+ALLOWED_ORIGINS         | RegExp | Allowed CORS origins
+PROVIDER_KEEP_ALIVE     | Number | WebSocket ping/pong interval for service providers
+NON_PROVIDER_KEEP_ALIVE | Number | WebSocket ping/pong interval for clients
+
 ### Messaging Protocol
 We use WebSocket as the base protocol.  Each message is a WebSocket message and has two parts: a JSON-object header, followed _optionally_ by a newline (LF) character and an arbitrary payload.
 
@@ -88,3 +95,22 @@ When the broker fails to deliver a message for any reason, if the message contai
 
 ### PUB/SUB
 When the service's name begins with the character `#`, the broker behaves slightly differently.  Rather than choosing randomly from the list of qualified providers having the same priority, the broker will broadcast the client's message to all of them.
+
+### HTTP Adapter
+The broker can accept service requests via HTTP on its listening port.  The HTTP request must have the following format:
+```
+POST /?service=<SERVICE-NAME>&capabilities=<COMMA-SEP-LIST> HTTP/1.1
+x-service-request-header: <OPTIONAL JSON-OBJECT>
+Content-Type: <MIME-OF-PAYLOAD>
+
+<PAYLOAD>
+```
+
+The broker will generate a WebSocket message from the HTTP request and send it to a qualified service provider.  Upon receiving a response from the provider, it will generate a corresponding HTTP response:
+```
+200 OK HTTP/1.1
+x-service-response-header: <JSON-OBJECT>
+Content-Type: <MIME-OF-PAYLOAD>
+
+<PAYLOAD>
+```

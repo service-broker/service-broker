@@ -94,7 +94,7 @@ class ProviderRegistry {
 const app = express();
 const server = http_1.createServer(app);
 const pending = {};
-app.get("/", (req, res) => res.end("Good"));
+app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/", cors(config_1.default.corsOptions));
 app.post("/", cors(config_1.default.corsOptions), onHttpPost);
 server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
