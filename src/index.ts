@@ -1,11 +1,9 @@
 import * as cors from "cors";
 import * as express from "express";
 import * as getStream from "get-stream";
-import { createServer, IncomingMessage, ServerResponse } from "http";
+import { createServer } from "http";
 import * as pTimeout from "p-timeout";
-import { parse as parseQuery } from "querystring";
 import { generate as generateId } from 'shortid';
-import { parse as parseUrl } from "url";
 import * as WebSocket from 'ws';
 import config from "./config";
 
@@ -172,7 +170,12 @@ async function onHttpPost(req: express.Request, res: express.Response) {
 
 const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+  server,
+  verifyClient: function(info: {origin: string}) {
+    return (<RegExp>config.corsOptions.origin).test(info.origin);
+  }
+})
 
 wss.on("connection", function(ws: WebSocket) {
   const endpointId = generateId();

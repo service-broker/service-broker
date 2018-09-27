@@ -149,7 +149,12 @@ function onHttpPost(req, res) {
 }
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+    server,
+    verifyClient: function (info) {
+        return config_1.default.corsOptions.origin.test(info.origin);
+    }
+});
 wss.on("connection", function (ws) {
     const endpointId = shortid_1.generate();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
