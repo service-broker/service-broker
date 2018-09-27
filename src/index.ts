@@ -327,6 +327,6 @@ function pickRandom<T>(list: Array<T>): T {
 }
 
 function shutdown() {
-  wss.close();
+  server.close();
   keepAliveTimers.forEach(clearInterval);
 }
