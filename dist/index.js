@@ -104,7 +104,7 @@ function onHttpPost(req, res) {
             const service = req.params.service;
             const capabilities = req.query.capabilities && req.query.capabilities.split(',');
             const header = JSON.parse(req.get("x-service-request-header") || "{}");
-            const payload = req.is("text/*") ? yield getStream(req) : yield getStream.buffer(req);
+            const payload = config_1.default.textMimes.some(x => !!req.is(x)) ? yield getStream(req) : yield getStream.buffer(req);
             if (!service) {
                 res.status(400).end("Missing args");
                 return;
@@ -129,6 +129,8 @@ function onHttpPost(req, res) {
             header.from = endpointId;
             if (!header.id)
                 header.id = endpointId;
+            if (req.get("content-type"))
+                header.contentType = req.get("content-type");
             header.service = { name: service, capabilities };
             pickRandom(providers).endpoint.send({ header, payload });
             const msg = yield promise;

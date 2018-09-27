@@ -119,7 +119,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     const service = req.params.service;
     const capabilities = req.query.capabilities && req.query.capabilities.split(',');
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
-    const payload = req.is("text/*") ? await getStream(req) : await getStream.buffer(req);
+    const payload = config.textMimes.some(x => !!req.is(x)) ? await getStream(req) : await getStream.buffer(req);
 
     if (!service) {
       res.status(400).end("Missing args");
@@ -148,6 +148,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
 
     header.from = endpointId;
     if (!header.id) header.id = endpointId;
+    if (req.get("content-type")) header.contentType = req.get("content-type"); 
     header.service = {name: service, capabilities};
     pickRandom(providers).endpoint.send({header, payload});
     const msg = await promise;

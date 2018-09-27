@@ -10,8 +10,13 @@ export default {
   corsOptions: <CorsOptions>{
     origin: new RegExp(process.env.ALLOWED_ORIGINS || "."),
     methods: "GET,POST",
-    allowedHeaders: "x-service-request-header",
+    allowedHeaders: "x-service-request-header, content-type",
     exposedHeaders: "x-service-response-header",
     maxAge: 86400
-  }
+  },
+  textMimes: [
+    "text/*",
+    "application/json",
+    "application/x-www-form-urlencoded",
+  ],
 }

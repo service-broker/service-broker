@@ -4,5 +4,6 @@ declare const _default: {
     providerKeepAlive: number;
     nonProviderKeepAlive: number;
     corsOptions: CorsOptions;
+    textMimes: string[];
 };
 export default _default;
