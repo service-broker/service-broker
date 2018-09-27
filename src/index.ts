@@ -1,6 +1,15 @@
-import * as WebSocket from 'ws';
+import * as cors from "cors";
+import * as express from "express";
+import * as getStream from "get-stream";
+import { createServer, IncomingMessage, ServerResponse } from "http";
+import * as pTimeout from "p-timeout";
+import { parse as parseQuery } from "querystring";
 import { generate as generateId } from 'shortid';
-import config from "./config"
+import { parse as parseUrl } from "url";
+import * as WebSocket from 'ws';
+import config from "./config";
+
+const pFinally = require("p-finally");
 
 
 interface Message {
@@ -95,9 +104,75 @@ interface Status {
 }
 
 
+
+const app = express();
+const server = createServer(app);
+const pending: {[key: string]: (res: Message) => void} = {};
+
+app.get("/", (req, res) => res.end("Good"));
+app.options("/", cors(config.corsOptions));
+app.post("/", cors(config.corsOptions), onHttpPost);
+
+server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
+
+
+async function onHttpPost(req: express.Request, res: express.Response) {
+  try {
+    const service = req.query.service;
+    const capabilities = req.query.capabilities && req.query.capabilities.split(',');
+    const header = JSON.parse(req.get("x-service-request-header") || "{}");
+    const payload = req.is("text/*") ? await getStream(req) : await getStream.buffer(req);
+
+    if (!service) {
+      res.status(400).end("Missing args");
+      return;
+    }
+
+    const providers = providerRegistry.find(service, capabilities);
+    if (!providers) {
+      res.status(404).end("No provider");
+      return;
+    }
+
+    if (service.startsWith("#")) {
+      delete header.id;
+      providers.forEach(x => x.endpoint.send({header, payload}));
+      res.end();
+      return;
+    }
+
+    const endpointId = generateId();
+    let promise = new Promise<Message>((fulfill, reject) => {
+      pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+    })
+    promise = pTimeout(promise, 15*1000);
+    promise = pFinally(promise, () => delete pending[endpointId]);
+
+    header.from = endpointId;
+    if (!header.id) header.id = endpointId;
+    header.service = {name: service, capabilities};
+    pickRandom(providers).endpoint.send({header, payload});
+    const msg = await promise;
+
+    if (msg.header.contentType) {
+      res.set("content-type", msg.header.contentType);
+      delete msg.header.contentType;
+    }
+    res.set("x-service-response-header", JSON.stringify(msg.header));
+
+    if (msg.payload) res.send(msg.payload);
+    else res.end();
+  }
+  catch (err) {
+    res.status(500).end(err.message);
+  }
+}
+
+
+
 const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({port: config.listeningPort}, () => console.log(`Service broker started on ${config.listeningPort}`));
+const wss = new WebSocket.Server({ server });
 
 wss.on("connection", function(ws: WebSocket) {
   const endpointId = generateId();
@@ -136,10 +211,12 @@ wss.on("connection", function(ws: WebSocket) {
   })
 
   function handleForward(msg: Message) {
-    const target = endpoints[msg.header.to];
-    if (target) {
+    if (endpoints[msg.header.to]) {
       msg.header.from = endpointId;
-      target.send(msg);
+      endpoints[msg.header.to].send(msg);
+    }
+    else if (pending[msg.header.to]) {
+      pending[msg.header.to](msg);
     }
     else throw new Error("Destination endpoint not found");
   }
@@ -193,6 +270,8 @@ wss.on("connection", function(ws: WebSocket) {
   }
 })
 
+
+
 const keepAliveTimers = [
   setInterval(() => {
     for (const endpoint of providerRegistry.endpoints) endpoint.keepAlive();
@@ -206,6 +285,7 @@ const keepAliveTimers = [
 ]
 
 process.on('uncaughtException', console.error);
+
 
 
 function messageFromString(str: string): Message {

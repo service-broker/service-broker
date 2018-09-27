@@ -1,8 +1,22 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const WebSocket = require("ws");
+const cors = require("cors");
+const express = require("express");
+const getStream = require("get-stream");
+const http_1 = require("http");
+const pTimeout = require("p-timeout");
 const shortid_1 = require("shortid");
+const WebSocket = require("ws");
 const config_1 = require("./config");
+const pFinally = require("p-finally");
 class Endpoint {
     constructor(id, ws) {
         this.id = id;
@@ -77,9 +91,65 @@ class ProviderRegistry {
             return null;
     }
 }
+const app = express();
+const server = http_1.createServer(app);
+const pending = {};
+app.get("/", (req, res) => res.end("Good"));
+app.options("/", cors(config_1.default.corsOptions));
+app.post("/", cors(config_1.default.corsOptions), onHttpPost);
+server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
+function onHttpPost(req, res) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const service = req.query.service;
+            const capabilities = req.query.capabilities && req.query.capabilities.split(',');
+            const header = JSON.parse(req.get("x-service-request-header") || "{}");
+            const payload = req.is("text/*") ? yield getStream(req) : yield getStream.buffer(req);
+            if (!service) {
+                res.status(400).end("Missing args");
+                return;
+            }
+            const providers = providerRegistry.find(service, capabilities);
+            if (!providers) {
+                res.status(404).end("No provider");
+                return;
+            }
+            if (service.startsWith("#")) {
+                delete header.id;
+                providers.forEach(x => x.endpoint.send({ header, payload }));
+                res.end();
+                return;
+            }
+            const endpointId = shortid_1.generate();
+            let promise = new Promise((fulfill, reject) => {
+                pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+            });
+            promise = pTimeout(promise, 15 * 1000);
+            promise = pFinally(promise, () => delete pending[endpointId]);
+            header.from = endpointId;
+            if (!header.id)
+                header.id = endpointId;
+            header.service = { name: service, capabilities };
+            pickRandom(providers).endpoint.send({ header, payload });
+            const msg = yield promise;
+            if (msg.header.contentType) {
+                res.set("content-type", msg.header.contentType);
+                delete msg.header.contentType;
+            }
+            res.set("x-service-response-header", JSON.stringify(msg.header));
+            if (msg.payload)
+                res.send(msg.payload);
+            else
+                res.end();
+        }
+        catch (err) {
+            res.status(500).end(err.message);
+        }
+    });
+}
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({ port: config_1.default.listeningPort }, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
+const wss = new WebSocket.Server({ server });
 wss.on("connection", function (ws) {
     const endpointId = shortid_1.generate();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
@@ -124,10 +194,12 @@ wss.on("connection", function (ws) {
         providerRegistry.remove(endpoint);
     });
     function handleForward(msg) {
-        const target = endpoints[msg.header.to];
-        if (target) {
+        if (endpoints[msg.header.to]) {
             msg.header.from = endpointId;
-            target.send(msg);
+            endpoints[msg.header.to].send(msg);
+        }
+        else if (pending[msg.header.to]) {
+            pending[msg.header.to](msg);
         }
         else
             throw new Error("Destination endpoint not found");
