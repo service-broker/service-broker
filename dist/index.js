@@ -124,7 +124,7 @@ function onHttpPost(req, res) {
             let promise = new Promise((fulfill, reject) => {
                 pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
             });
-            promise = pTimeout(promise, 15 * 1000);
+            promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
             promise = pFinally(promise, () => delete pending[endpointId]);
             header.from = endpointId;
             if (!header.id)
