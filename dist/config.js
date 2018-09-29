@@ -18,4 +18,5 @@ exports.default = {
         "application/json",
         "application/x-www-form-urlencoded",
     ],
+    trustProxy: Number(process.env.TRUST_PROXY || 0),
 };

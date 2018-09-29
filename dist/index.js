@@ -127,6 +127,7 @@ function onHttpPost(req, res) {
             promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
             promise = pFinally(promise, () => delete pending[endpointId]);
             header.from = endpointId;
+            header.ip = req.ips.concat(req.ip).slice(-1 - config_1.default.trustProxy)[0];
             if (!header.id)
                 header.id = endpointId;
             if (req.get("content-type"))
@@ -157,7 +158,9 @@ const wss = new WebSocket.Server({
         return config_1.default.corsOptions.origin.test(info.origin);
     }
 });
-wss.on("connection", function (ws) {
+wss.on("connection", function (ws, upreq) {
+    const xForwardedFor = upreq.headers['x-forwarded-for'] ? upreq.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
+    const ip = xForwardedFor.concat(upreq.connection.remoteAddress).slice(-1 - config_1.default.trustProxy)[0];
     const endpointId = shortid_1.generate();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
     ws.on("message", function (data) {
@@ -174,6 +177,8 @@ wss.on("connection", function (ws) {
             console.error(err.message);
             return;
         }
+        if (msg.header.service)
+            msg.header.ip = ip;
         try {
             if (msg.header.to)
                 handleForward(msg);

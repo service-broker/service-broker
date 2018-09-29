@@ -147,8 +147,9 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     promise = pFinally(promise, () => delete pending[endpointId]);
 
     header.from = endpointId;
+    header.ip = req.ips.concat(req.ip).slice(-1-config.trustProxy)[0];
     if (!header.id) header.id = endpointId;
-    if (req.get("content-type")) header.contentType = req.get("content-type"); 
+    if (req.get("content-type")) header.contentType = req.get("content-type");
     header.service = {name: service, capabilities};
     pickRandom(providers).endpoint.send({header, payload});
     const msg = await promise;
@@ -178,7 +179,9 @@ const wss = new WebSocket.Server({
   }
 })
 
-wss.on("connection", function(ws: WebSocket) {
+wss.on("connection", function(ws: WebSocket, upreq) {
+  const xForwardedFor = upreq.headers['x-forwarded-for'] ? (<string>upreq.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
+  const ip = xForwardedFor.concat(upreq.connection.remoteAddress).slice(-1-config.trustProxy)[0];
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
 
@@ -193,6 +196,7 @@ wss.on("connection", function(ws: WebSocket) {
       console.error(err.message);
       return;
     }
+    if (msg.header.service) msg.header.ip = ip;
     try {
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg);
