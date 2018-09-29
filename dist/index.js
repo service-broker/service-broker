@@ -152,7 +152,7 @@ function onHttpPost(req, res) {
 }
 function getClientIp(req) {
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
-    return xForwardedFor.concat(req.connection.remoteAddress).slice(-1 - config_1.default.trustProxy)[0];
+    return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();

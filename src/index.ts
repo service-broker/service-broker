@@ -170,7 +170,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
 
 function getClientIp(req: IncomingMessage) {
   const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
-  return xForwardedFor.concat(req.connection.remoteAddress).slice(-1-config.trustProxy)[0];
+  return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1-config.trustProxy)[0];
 }
 
 

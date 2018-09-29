@@ -126,7 +126,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p2)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: "This is the text payload"
         });
         //request transcode-mp3 should pick p1 (higher priory)
@@ -136,7 +136,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: Buffer.from("This is the binary payload")
         });
         //request transcode-[no capabilities] should pick p1 (higher priory)
@@ -146,7 +146,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: Buffer.from("This is the binary payload")
         });
         //request tts-v2 should pick p1 (only match)
@@ -156,7 +156,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: "This is the text payload"
         });
         //request tts-v1,v2 should pick p1 (only match)
@@ -166,7 +166,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: "This is the text payload"
         });
         //request transcode-mp3,hifi should pick p2 (only match)
@@ -176,7 +176,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(yield receive(p2)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: Buffer.from("This is the binary payload")
         });
         //request log-err should pick p1,p2 (multiple match)
@@ -186,11 +186,11 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(yield receive(p1)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: "This is the text payload"
         });
         expect(yield receive(p2)).toEqual({
-            header: Object.assign({ from: expect.any(String) }, header),
+            header: Object.assign({ from: expect.any(String), ip: "127.0.0.1" }, header),
             payload: "This is the text payload"
         });
         //request v2,v3 should error out (no match)

@@ -125,7 +125,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: "This is the text payload"
         });
 
@@ -136,7 +136,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -147,7 +147,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -158,7 +158,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: "This is the text payload"
         });
 
@@ -169,7 +169,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: "This is the text payload"
         });
 
@@ -180,7 +180,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: Buffer.from("This is the binary payload")
         });
 
@@ -191,11 +191,11 @@ describe("test service provider", () => {
         }
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: "This is the text payload"
         })
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String)}, header),
+            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
             payload: "This is the text payload"
         })
 
