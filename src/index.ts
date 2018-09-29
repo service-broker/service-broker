@@ -1,7 +1,7 @@
 import * as cors from "cors";
 import * as express from "express";
 import * as getStream from "get-stream";
-import { createServer } from "http";
+import { createServer, IncomingMessage } from "http";
 import * as pTimeout from "p-timeout";
 import { generate as generateId } from 'shortid';
 import * as WebSocket from 'ws';
@@ -147,7 +147,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     promise = pFinally(promise, () => delete pending[endpointId]);
 
     header.from = endpointId;
-    header.ip = req.ips.concat(req.ip).slice(-1-config.trustProxy)[0];
+    header.ip = getClientIp(req);
     if (!header.id) header.id = endpointId;
     if (req.get("content-type")) header.contentType = req.get("content-type");
     header.service = {name: service, capabilities};
@@ -168,6 +168,11 @@ async function onHttpPost(req: express.Request, res: express.Response) {
   }
 }
 
+function getClientIp(req: IncomingMessage) {
+  const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
+  return xForwardedFor.concat(req.connection.remoteAddress).slice(-1-config.trustProxy)[0];
+}
+
 
 
 const endpoints: {[key: string]: Endpoint} = {};
@@ -180,8 +185,7 @@ const wss = new WebSocket.Server({
 })
 
 wss.on("connection", function(ws: WebSocket, upreq) {
-  const xForwardedFor = upreq.headers['x-forwarded-for'] ? (<string>upreq.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
-  const ip = xForwardedFor.concat(upreq.connection.remoteAddress).slice(-1-config.trustProxy)[0];
+  const ip = getClientIp(upreq);
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
 

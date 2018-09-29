@@ -127,7 +127,7 @@ function onHttpPost(req, res) {
             promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
             promise = pFinally(promise, () => delete pending[endpointId]);
             header.from = endpointId;
-            header.ip = req.ips.concat(req.ip).slice(-1 - config_1.default.trustProxy)[0];
+            header.ip = getClientIp(req);
             if (!header.id)
                 header.id = endpointId;
             if (req.get("content-type"))
@@ -150,6 +150,10 @@ function onHttpPost(req, res) {
         }
     });
 }
+function getClientIp(req) {
+    const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
+    return xForwardedFor.concat(req.connection.remoteAddress).slice(-1 - config_1.default.trustProxy)[0];
+}
 const endpoints = {};
 const providerRegistry = new ProviderRegistry();
 const wss = new WebSocket.Server({
@@ -159,8 +163,7 @@ const wss = new WebSocket.Server({
     }
 });
 wss.on("connection", function (ws, upreq) {
-    const xForwardedFor = upreq.headers['x-forwarded-for'] ? upreq.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
-    const ip = xForwardedFor.concat(upreq.connection.remoteAddress).slice(-1 - config_1.default.trustProxy)[0];
+    const ip = getClientIp(upreq);
     const endpointId = shortid_1.generate();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
     ws.on("message", function (data) {
