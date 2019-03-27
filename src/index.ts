@@ -1,12 +1,13 @@
 import * as cors from "cors";
 import * as express from "express";
-import * as getStream from "get-stream";
+import * as RateLimit from "express-rate-limit";
 import { createServer, IncomingMessage } from "http";
-import * as pTimeout from "p-timeout";
 import { generate as generateId } from 'shortid';
 import * as WebSocket from 'ws';
 import config from "./config";
 
+const getStream = require("get-stream");
+const pTimeout = require("p-timeout");
 const pFinally = require("p-finally");
 
 
@@ -106,6 +107,9 @@ interface Status {
 const app = express();
 const server = createServer(app);
 const pending: {[key: string]: (res: Message) => void} = {};
+
+app.set("trust proxy", config.trustProxy);
+if (config.rateLimit) app.use(new RateLimit(config.rateLimit));
 
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config.corsOptions));

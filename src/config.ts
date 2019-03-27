@@ -1,10 +1,20 @@
-import * as dotenv from "dotenv"
-import { CorsOptions } from "cors"
+import * as assert from "assert";
+import { CorsOptions } from "cors";
+import * as dotenv from "dotenv";
 
 dotenv.config();
 
+assert(process.env.LISTENING_PORT, "Missing env LISTENING_PORT");
+
+let rateLimit: number[];
+if (process.env.RATE_LIMIT) {
+  assert(process.env.TRUST_PROXY, "Missing env TRUST_PROXY");
+  assert(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT");
+  rateLimit = process.env.RATE_LIMIT.split(",").map(x => Number(x));
+}
+
 export default {
-  listeningPort: Number(process.env.LISTENING_PORT || 2033),
+  listeningPort: Number(process.env.LISTENING_PORT),
   providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15*1000),
   nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15*60*1000),
   corsOptions: <CorsOptions>{
@@ -20,4 +30,5 @@ export default {
     "application/x-www-form-urlencoded",
   ],
   trustProxy: Number(process.env.TRUST_PROXY || 0),
+  rateLimit: rateLimit && {max: rateLimit[0], windowMs: rateLimit[1]},
 }

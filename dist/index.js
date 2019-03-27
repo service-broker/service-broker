@@ -10,12 +10,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 const cors = require("cors");
 const express = require("express");
-const getStream = require("get-stream");
+const RateLimit = require("express-rate-limit");
 const http_1 = require("http");
-const pTimeout = require("p-timeout");
 const shortid_1 = require("shortid");
 const WebSocket = require("ws");
 const config_1 = require("./config");
+const getStream = require("get-stream");
+const pTimeout = require("p-timeout");
 const pFinally = require("p-finally");
 class Endpoint {
     constructor(id, ws) {
@@ -94,6 +95,9 @@ class ProviderRegistry {
 const app = express();
 const server = http_1.createServer(app);
 const pending = {};
+app.set("trust proxy", config_1.default.trustProxy);
+if (config_1.default.rateLimit)
+    app.use(new RateLimit(config_1.default.rateLimit));
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config_1.default.corsOptions));
 app.post("/:service", cors(config_1.default.corsOptions), onHttpPost);

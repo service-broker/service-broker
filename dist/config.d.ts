@@ -6,5 +6,9 @@ declare const _default: {
     corsOptions: CorsOptions;
     textMimes: string[];
     trustProxy: number;
+    rateLimit: {
+        max: number;
+        windowMs: number;
+    };
 };
 export default _default;

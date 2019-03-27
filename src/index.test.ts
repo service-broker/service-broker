@@ -1,3 +1,4 @@
+/*
 import rewire = require('rewire');
 import * as WebSocket from 'ws';
 import config from './config';
@@ -224,4 +225,4 @@ describe("test service provider", () => {
         expect(await receive(p2)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
     })
 })
-
+*/

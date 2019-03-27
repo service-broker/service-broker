@@ -15,6 +15,7 @@
     "cors": "^2.8.5",
     "dotenv": "^6.1.0",
     "express": "^4.16.4",
+    "express-rate-limit": "^3.4.0",
     "get-stream": "^4.1.0",
     "p-finally": "^1.0.0",
     "p-timeout": "^2.0.1",
@@ -25,14 +26,9 @@
     "@types/cors": "^2.8.4",
     "@types/dotenv": "^4.0.3",
     "@types/express": "^4.16.0",
-    "@types/get-stream": "^3.0.1",
-    "@types/jest": "^23.3.9",
-    "@types/p-timeout": "^1.2.1",
-    "@types/rewire": "^2.5.28",
+    "@types/express-rate-limit": "^3.3.0",
     "@types/shortid": "0.0.29",
     "@types/ws": "^5.1.2",
-    "jest": "^23.6.0",
-    "rewire": "^4.0.1",
     "typescript": "^2.9.2"
   }
 }
