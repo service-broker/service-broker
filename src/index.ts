@@ -1,14 +1,18 @@
 import * as cors from "cors";
 import * as express from "express";
 import * as RateLimit from "express-rate-limit";
+import { appendFile } from "fs";
 import { createServer, IncomingMessage } from "http";
 import { generate as generateId } from 'shortid';
 import * as WebSocket from 'ws';
 import config from "./config";
+import { Counter } from "./stats";
 
 const getStream = require("get-stream");
 const pTimeout = require("p-timeout");
 const pFinally = require("p-finally");
+
+const basicStats = new Counter();
 
 
 interface Message {
@@ -130,12 +134,17 @@ async function onHttpPost(req: express.Request, res: express.Response) {
       return;
     }
 
+    //update stats
+    basicStats.inc(header.method ? `${service}/${header.method}` : service);
+
+    //find providers
     const providers = providerRegistry.find(service, capabilities);
     if (!providers) {
       res.status(404).end("No provider");
       return;
     }
 
+    //if topic then broadcast
     if (service.startsWith("#")) {
       delete header.id;
       providers.forEach(x => x.endpoint.send({header, payload}));
@@ -143,6 +152,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
       return;
     }
 
+    //send to random provider
     const endpointId = generateId();
     let promise = new Promise<Message>((fulfill, reject) => {
       pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
@@ -158,12 +168,12 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     pickRandom(providers).endpoint.send({header, payload});
     const msg = await promise;
 
+    //forward the response
     if (msg.header.contentType) {
       res.set("content-type", msg.header.contentType);
       delete msg.header.contentType;
     }
     res.set("x-service-response-header", JSON.stringify(msg.header));
-
     if (msg.payload) res.send(msg.payload);
     else res.end();
   }
@@ -238,6 +248,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   }
 
   function handleServiceRequest(msg: Message) {
+    basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
     const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
     if (providers) {
       msg.header.from = endpointId;
@@ -288,7 +299,14 @@ wss.on("connection", function(ws: WebSocket, upreq) {
 
 
 
-const keepAliveTimers = [
+const timers = [
+  setInterval(() => {
+    const now = new Date();
+    appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
+    basicStats.clear();
+  },
+  config.basicStats.interval),
+
   setInterval(() => {
     for (const endpoint of providerRegistry.endpoints) endpoint.keepAlive();
   },
@@ -341,5 +359,5 @@ function pickRandom<T>(list: Array<T>): T {
 
 function shutdown() {
   server.close();
-  keepAliveTimers.forEach(clearInterval);
+  timers.forEach(clearInterval);
 }

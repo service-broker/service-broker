@@ -28,4 +28,8 @@ exports.default = {
     ],
     trustProxy: Number(process.env.TRUST_PROXY || 0),
     rateLimit: rateLimit && { max: rateLimit[0], windowMs: rateLimit[1] },
+    basicStats: {
+        file: "stats.txt",
+        interval: 5 * 60 * 1000
+    },
 };

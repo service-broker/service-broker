@@ -11,13 +11,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const cors = require("cors");
 const express = require("express");
 const RateLimit = require("express-rate-limit");
+const fs_1 = require("fs");
 const http_1 = require("http");
 const shortid_1 = require("shortid");
 const WebSocket = require("ws");
 const config_1 = require("./config");
+const stats_1 = require("./stats");
 const getStream = require("get-stream");
 const pTimeout = require("p-timeout");
 const pFinally = require("p-finally");
+const basicStats = new stats_1.Counter();
 class Endpoint {
     constructor(id, ws) {
         this.id = id;
@@ -113,17 +116,22 @@ function onHttpPost(req, res) {
                 res.status(400).end("Missing args");
                 return;
             }
+            //update stats
+            basicStats.inc(header.method ? `${service}-${header.method}` : service);
+            //find providers
             const providers = providerRegistry.find(service, capabilities);
             if (!providers) {
                 res.status(404).end("No provider");
                 return;
             }
+            //if topic then broadcast
             if (service.startsWith("#")) {
                 delete header.id;
                 providers.forEach(x => x.endpoint.send({ header, payload }));
                 res.end();
                 return;
             }
+            //send to random provider
             const endpointId = shortid_1.generate();
             let promise = new Promise((fulfill, reject) => {
                 pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
@@ -139,6 +147,7 @@ function onHttpPost(req, res) {
             header.service = { name: service, capabilities };
             pickRandom(providers).endpoint.send({ header, payload });
             const msg = yield promise;
+            //forward the response
             if (msg.header.contentType) {
                 res.set("content-type", msg.header.contentType);
                 delete msg.header.contentType;
@@ -224,6 +233,7 @@ wss.on("connection", function (ws, upreq) {
             throw new Error("Destination endpoint not found");
     }
     function handleServiceRequest(msg) {
+        basicStats.inc(msg.header.method ? `${msg.header.service.name}-${msg.header.method}` : msg.header.service.name);
         const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
         if (providers) {
             msg.header.from = endpointId;
@@ -274,7 +284,12 @@ wss.on("connection", function (ws, upreq) {
         });
     }
 });
-const keepAliveTimers = [
+const timers = [
+    setInterval(() => {
+        const now = new Date();
+        fs_1.appendFile(config_1.default.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
+        basicStats.clear();
+    }, config_1.default.basicStats.interval),
     setInterval(() => {
         for (const endpoint of providerRegistry.endpoints)
             endpoint.keepAlive();
@@ -322,5 +337,5 @@ function pickRandom(list) {
 }
 function shutdown() {
     server.close();
-    keepAliveTimers.forEach(clearInterval);
+    timers.forEach(clearInterval);
 }

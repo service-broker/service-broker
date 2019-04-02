@@ -10,5 +10,9 @@ declare const _default: {
         max: number;
         windowMs: number;
     };
+    basicStats: {
+        file: string;
+        interval: number;
+    };
 };
 export default _default;
