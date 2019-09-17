@@ -113,11 +113,9 @@ const server = createServer(app);
 const pending: {[key: string]: (res: Message) => void} = {};
 
 app.set("trust proxy", config.trustProxy);
-if (config.rateLimit) app.use(new RateLimit(config.rateLimit));
-
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config.corsOptions));
-app.post("/:service", cors(config.corsOptions), onHttpPost);
+app.post("/:service", config.rateLimit ? new RateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
 
 server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
 

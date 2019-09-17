@@ -1,4 +1,5 @@
 import { CorsOptions } from "cors";
+import * as RateLimit from "express-rate-limit";
 declare const _default: {
     listeningPort: number;
     providerKeepAlive: number;
@@ -6,10 +7,7 @@ declare const _default: {
     corsOptions: CorsOptions;
     textMimes: string[];
     trustProxy: number;
-    rateLimit: {
-        max: number;
-        windowMs: number;
-    };
+    rateLimit: RateLimit.Options;
     basicStats: {
         file: string;
         interval: number;

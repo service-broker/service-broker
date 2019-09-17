@@ -99,11 +99,9 @@ const app = express();
 const server = http_1.createServer(app);
 const pending = {};
 app.set("trust proxy", config_1.default.trustProxy);
-if (config_1.default.rateLimit)
-    app.use(new RateLimit(config_1.default.rateLimit));
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config_1.default.corsOptions));
-app.post("/:service", cors(config_1.default.corsOptions), onHttpPost);
+app.post("/:service", config_1.default.rateLimit ? new RateLimit(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
 server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
 function onHttpPost(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -117,7 +115,7 @@ function onHttpPost(req, res) {
                 return;
             }
             //update stats
-            basicStats.inc(header.method ? `${service}-${header.method}` : service);
+            basicStats.inc(header.method ? `${service}/${header.method}` : service);
             //find providers
             const providers = providerRegistry.find(service, capabilities);
             if (!providers) {
@@ -233,7 +231,7 @@ wss.on("connection", function (ws, upreq) {
             throw new Error("Destination endpoint not found");
     }
     function handleServiceRequest(msg) {
-        basicStats.inc(msg.header.method ? `${msg.header.service.name}-${msg.header.method}` : msg.header.service.name);
+        basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
         const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
         if (providers) {
             msg.header.from = endpointId;

@@ -27,7 +27,11 @@ exports.default = {
         "application/x-www-form-urlencoded",
     ],
     trustProxy: Number(process.env.TRUST_PROXY || 0),
-    rateLimit: rateLimit && { max: rateLimit[0], windowMs: rateLimit[1] },
+    rateLimit: rateLimit && {
+        max: rateLimit[0],
+        windowMs: rateLimit[1],
+        onLimitReached: req => console.info("Rate limit exceeded", req.ip),
+    },
     basicStats: {
         file: "stats.txt",
         interval: 5 * 60 * 1000
