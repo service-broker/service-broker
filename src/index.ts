@@ -1,6 +1,6 @@
 import * as cors from "cors";
 import * as express from "express";
-import * as RateLimit from "express-rate-limit";
+import * as rateLimit from "express-rate-limit";
 import { appendFile } from "fs";
 import { createServer, IncomingMessage } from "http";
 import { generate as generateId } from 'shortid';
@@ -22,8 +22,10 @@ interface Message {
 
 class Endpoint {
   isAlive: boolean;
+  waiters: {endpointId: string, responseId: number}[];
   constructor(public id: string, private ws: WebSocket) {
     this.isAlive = true;
+    this.waiters = [];
   }
   send(msg: Message) {
     const headerStr = JSON.stringify(msg.header);
@@ -115,7 +117,7 @@ const pending: {[key: string]: (res: Message) => void} = {};
 app.set("trust proxy", config.trustProxy);
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config.corsOptions));
-app.post("/:service", config.rateLimit ? new RateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
+app.post("/:service", config.rateLimit ? rateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
 
 server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
 
@@ -123,7 +125,7 @@ server.listen(config.listeningPort, () => console.log(`Service broker started on
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
     const service = req.params.service;
-    const capabilities = req.query.capabilities && req.query.capabilities.split(',');
+    const capabilities = req.query.capabilities && (req.query.capabilities as string).split(',');
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
     const payload = config.textMimes.some(x => !!req.is(x)) ? await getStream(req) : await getStream.buffer(req);
 
@@ -219,6 +221,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
       else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
       else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
+      else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg);
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
@@ -232,6 +235,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   ws.on("close", function() {
     delete endpoints[endpointId];
     providerRegistry.remove(endpoint);
+    for (const waiter of endpoint.waiters) endpoints[waiter.endpointId]?.send({header: {id: waiter.responseId, type: "SbEndpointWaitResponse"}});
   })
 
   function handleForward(msg: Message) {
@@ -292,6 +296,13 @@ wss.on("connection", function(ws: WebSocket, upreq) {
         endpointStatuses: msg.header.endpointIds.map((id: string) => endpoints[id] != null)
       }
     })
+  }
+
+  function handleEndpointWaitRequest(msg: Message) {
+    const target = endpoints[msg.header.endpointId];
+    if (!target) throw new Error("NOT_FOUND");
+    if (target.waiters.find(x => x.endpointId == endpointId)) throw new Error("ALREADY_WAITING");
+    target.waiters.push({endpointId, responseId: msg.header.id});
   }
 })
 

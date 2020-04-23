@@ -1,16 +1,17 @@
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
         function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const cors = require("cors");
 const express = require("express");
-const RateLimit = require("express-rate-limit");
+const rateLimit = require("express-rate-limit");
 const fs_1 = require("fs");
 const http_1 = require("http");
 const shortid_1 = require("shortid");
@@ -26,6 +27,7 @@ class Endpoint {
         this.id = id;
         this.ws = ws;
         this.isAlive = true;
+        this.waiters = [];
     }
     send(msg) {
         const headerStr = JSON.stringify(msg.header);
@@ -101,7 +103,7 @@ const pending = {};
 app.set("trust proxy", config_1.default.trustProxy);
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config_1.default.corsOptions));
-app.post("/:service", config_1.default.rateLimit ? new RateLimit(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
+app.post("/:service", config_1.default.rateLimit ? rateLimit(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
 server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
 function onHttpPost(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -204,6 +206,8 @@ wss.on("connection", function (ws, upreq) {
                 handleStatusRequest(msg);
             else if (msg.header.type == "SbEndpointStatusRequest")
                 handleEndpointStatusRequest(msg);
+            else if (msg.header.type == "SbEndpointWaitRequest")
+                handleEndpointWaitRequest(msg);
             else
                 throw new Error("Don't know what to do with message");
         }
@@ -216,8 +220,11 @@ wss.on("connection", function (ws, upreq) {
     });
     ws.on("pong", () => endpoint.isAlive = true);
     ws.on("close", function () {
+        var _a;
         delete endpoints[endpointId];
         providerRegistry.remove(endpoint);
+        for (const waiter of endpoint.waiters)
+            (_a = endpoints[waiter.endpointId]) === null || _a === void 0 ? void 0 : _a.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse" } });
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
@@ -280,6 +287,14 @@ wss.on("connection", function (ws, upreq) {
                 endpointStatuses: msg.header.endpointIds.map((id) => endpoints[id] != null)
             }
         });
+    }
+    function handleEndpointWaitRequest(msg) {
+        const target = endpoints[msg.header.endpointId];
+        if (!target)
+            throw new Error("NOT_FOUND");
+        if (target.waiters.find(x => x.endpointId == endpointId))
+            throw new Error("ALREADY_WAITING");
+        target.waiters.push({ endpointId, responseId: msg.header.id });
     }
 });
 const timers = [
