@@ -140,7 +140,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     //find providers
     const providers = providerRegistry.find(service, capabilities);
     if (!providers) {
-      res.status(404).end("No provider");
+      res.status(404).end("No provider " + service);
       return;
     }
 
@@ -257,7 +257,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       if (msg.header.service.name.startsWith("#")) providers.forEach(x => x.endpoint.send(msg));
       else pickRandom(providers).endpoint.send(msg);
     }
-    else throw new Error("No provider");
+    else throw new Error("No provider " + msg.header.service.name);
   }
 
   function handleAdvertiseRequest(msg: Message) {

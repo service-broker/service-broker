@@ -121,7 +121,7 @@ function onHttpPost(req, res) {
             //find providers
             const providers = providerRegistry.find(service, capabilities);
             if (!providers) {
-                res.status(404).end("No provider");
+                res.status(404).end("No provider " + service);
                 return;
             }
             //if topic then broadcast
@@ -248,7 +248,7 @@ wss.on("connection", function (ws, upreq) {
                 pickRandom(providers).endpoint.send(msg);
         }
         else
-            throw new Error("No provider");
+            throw new Error("No provider " + msg.header.service.name);
     }
     function handleAdvertiseRequest(msg) {
         providerRegistry.remove(endpoint);
