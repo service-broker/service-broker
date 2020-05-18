@@ -214,10 +214,12 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       console.error(err.message);
       return;
     }
-    if (msg.header.service) msg.header.ip = ip;
     try {
       if (msg.header.to) handleForward(msg);
-      else if (msg.header.service) handleServiceRequest(msg);
+      else if (msg.header.service) {
+        msg.header.ip = ip;
+        handleServiceRequest(msg);
+      }
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
       else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
       else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);

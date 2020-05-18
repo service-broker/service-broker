@@ -193,13 +193,13 @@ wss.on("connection", function (ws, upreq) {
             console.error(err.message);
             return;
         }
-        if (msg.header.service)
-            msg.header.ip = ip;
         try {
             if (msg.header.to)
                 handleForward(msg);
-            else if (msg.header.service)
+            else if (msg.header.service) {
+                msg.header.ip = ip;
                 handleServiceRequest(msg);
+            }
             else if (msg.header.type == "SbAdvertiseRequest")
                 handleAdvertiseRequest(msg);
             else if (msg.header.type == "SbStatusRequest")
