@@ -224,7 +224,7 @@ wss.on("connection", function (ws, upreq) {
         delete endpoints[endpointId];
         providerRegistry.remove(endpoint);
         for (const waiter of endpoint.waiters)
-            (_a = endpoints[waiter.endpointId]) === null || _a === void 0 ? void 0 : _a.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse" } });
+            (_a = endpoints[waiter.endpointId]) === null || _a === void 0 ? void 0 : _a.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse", endpointId } });
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {

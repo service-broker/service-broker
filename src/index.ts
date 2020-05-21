@@ -237,7 +237,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   ws.on("close", function() {
     delete endpoints[endpointId];
     providerRegistry.remove(endpoint);
-    for (const waiter of endpoint.waiters) endpoints[waiter.endpointId]?.send({header: {id: waiter.responseId, type: "SbEndpointWaitResponse"}});
+    for (const waiter of endpoint.waiters) endpoints[waiter.endpointId]?.send({header: {id: waiter.responseId, type: "SbEndpointWaitResponse", endpointId}});
   })
 
   function handleForward(msg: Message) {
