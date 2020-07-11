@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const cors = require("cors");
 const express = require("express");
@@ -61,14 +52,15 @@ class ProviderRegistry {
         this.registry = {};
         this.endpoints = new Set();
     }
-    add(endpoint, name, capabilities, priority) {
+    add(endpoint, name, capabilities, priority, httpHeaders) {
         const list = this.registry[name] || (this.registry[name] = []);
         //keep sorted in descending priority
         const index = list.findIndex(x => x.priority < priority);
         const provider = {
             endpoint,
             capabilities: capabilities && new Set(capabilities),
-            priority
+            priority,
+            httpHeaders,
         };
         if (index != -1)
             list.splice(index, 0, provider);
@@ -86,8 +78,9 @@ class ProviderRegistry {
     find(name, requiredCapabilities) {
         const list = this.registry[name];
         if (list) {
-            const isCapable = (provider) => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x));
-            const capableProviders = !requiredCapabilities ? list : list.filter(isCapable);
+            const capableProviders = requiredCapabilities
+                ? list.filter(provider => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x)))
+                : list;
             if (capableProviders.length)
                 return capableProviders.filter(x => x.priority == capableProviders[0].priority);
             else
@@ -105,65 +98,71 @@ app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config_1.default.corsOptions));
 app.post("/:service", config_1.default.rateLimit ? rateLimit(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
 server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
-function onHttpPost(req, res) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const service = req.params.service;
-            const capabilities = req.query.capabilities && req.query.capabilities.split(',');
-            const header = JSON.parse(req.get("x-service-request-header") || "{}");
-            const payload = config_1.default.textMimes.some(x => !!req.is(x)) ? yield getStream(req) : yield getStream.buffer(req);
-            if (!service) {
-                res.status(400).end("Missing args");
-                return;
-            }
-            //update stats
-            basicStats.inc(header.method ? `${service}/${header.method}` : service);
-            //find providers
-            const providers = providerRegistry.find(service, capabilities);
-            if (!providers) {
-                res.status(404).end("No provider " + service);
-                return;
-            }
-            //if topic then broadcast
-            if (service.startsWith("#")) {
-                delete header.id;
-                providers.forEach(x => x.endpoint.send({ header, payload }));
-                res.end();
-                return;
-            }
-            //send to random provider
-            const endpointId = shortid_1.generate();
-            let promise = new Promise((fulfill, reject) => {
-                pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
-            });
-            promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
-            promise = pFinally(promise, () => delete pending[endpointId]);
-            header.from = endpointId;
-            header.ip = getClientIp(req);
-            if (!header.id)
-                header.id = endpointId;
-            if (req.get("content-type"))
-                header.contentType = req.get("content-type");
-            header.service = { name: service, capabilities };
-            pickRandom(providers).endpoint.send({ header, payload });
-            const msg = yield promise;
-            //forward the response
-            if (msg.header.contentType) {
-                res.set("content-type", msg.header.contentType);
-                delete msg.header.contentType;
-            }
-            res.set("x-service-response-header", JSON.stringify(msg.header));
-            if (msg.payload)
-                res.send(msg.payload);
-            else
-                res.end();
+async function onHttpPost(req, res) {
+    try {
+        const service = req.params.service;
+        const capabilities = req.query.capabilities ? req.query.capabilities.split(',') : null;
+        const header = JSON.parse(req.get("x-service-request-header") || "{}");
+        const payload = config_1.default.textMimes.some(x => !!req.is(x)) ? await getStream(req) : await getStream.buffer(req);
+        if (!service) {
+            res.status(400).end("Missing args");
+            return;
         }
-        catch (err) {
-            res.status(500).end(err.message);
+        //update stats
+        basicStats.inc(header.method ? `${service}/${header.method}` : service);
+        //find providers
+        const providers = providerRegistry.find(service, capabilities);
+        if (!providers) {
+            res.status(404).end("No provider " + service);
+            return;
         }
-    });
+        //if topic then broadcast
+        if (service.startsWith("#")) {
+            delete header.id;
+            providers.forEach(x => x.endpoint.send({ header, payload }));
+            res.end();
+            return;
+        }
+        //send to random provider
+        const endpointId = shortid_1.generate();
+        let promise = new Promise((fulfill, reject) => {
+            pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+        });
+        promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
+        promise = pFinally(promise, () => delete pending[endpointId]);
+        header.from = endpointId;
+        header.ip = getClientIp(req);
+        if (!header.id)
+            header.id = endpointId;
+        if (req.get("content-type"))
+            header.contentType = req.get("content-type");
+        header.service = { name: service, capabilities };
+        const provider = pickRandom(providers);
+        if (provider.httpHeaders) {
+            header.httpHeaders = {};
+            for (const name of provider.httpHeaders)
+                header.httpHeaders[name] = req.get(name);
+        }
+        provider.endpoint.send({ header, payload });
+        const msg = await promise;
+        //forward the response
+        if (msg.header.contentType) {
+            res.set("content-type", msg.header.contentType);
+            delete msg.header.contentType;
+        }
+        res.set("x-service-response-header", JSON.stringify(msg.header));
+        if (msg.payload)
+            res.send(msg.payload);
+        else
+            res.end();
+    }
+    catch (err) {
+        res.status(500).end(err.message);
+    }
 }
 function getClientIp(req) {
+    if (!req.connection.remoteAddress)
+        throw new Error("Connection closed");
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
     return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
@@ -254,7 +253,7 @@ wss.on("connection", function (ws, upreq) {
         providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
-                providerRegistry.add(endpoint, service.name, service.capabilities, service.priority);
+                providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
         }
         if (msg.header.id)
             endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });

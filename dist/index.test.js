@@ -1,3 +1,4 @@
+"use strict";
 /*
 import rewire = require('rewire');
 import * as WebSocket from 'ws';

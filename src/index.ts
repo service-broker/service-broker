@@ -56,6 +56,7 @@ interface Provider {
   endpoint: Endpoint;
   capabilities: Set<string>;
   priority: number;
+  httpHeaders: string[];
 }
 
 class ProviderRegistry {
@@ -65,14 +66,15 @@ class ProviderRegistry {
     this.registry = {};
     this.endpoints = new Set<Endpoint>();
   }
-  add(endpoint: Endpoint, name: string, capabilities: string[], priority: number) {
+  add(endpoint: Endpoint, name: string, capabilities: string[], priority: number, httpHeaders: string[]) {
     const list = this.registry[name] || (this.registry[name] = []);
     //keep sorted in descending priority
     const index = list.findIndex(x => x.priority < priority);
     const provider: Provider = {
       endpoint,
       capabilities: capabilities && new Set(capabilities),
-      priority
+      priority,
+      httpHeaders,
     };
     if (index != -1) list.splice(index, 0, provider);
     else list.push(provider);
@@ -84,11 +86,12 @@ class ProviderRegistry {
       this.endpoints.delete(endpoint);
     }
   }
-  find(name: string, requiredCapabilities: string[]): Provider[] {
+  find(name: string, requiredCapabilities: string[]|null): Provider[]|null {
     const list = this.registry[name];
     if (list) {
-      const isCapable = (provider: Provider) => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x));
-      const capableProviders = !requiredCapabilities ? list : list.filter(isCapable);
+      const capableProviders = requiredCapabilities
+        ? list.filter(provider => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x)))
+        : list;
       if (capableProviders.length) return capableProviders.filter(x => x.priority == capableProviders[0].priority);
       else return null;
     }
@@ -125,7 +128,7 @@ server.listen(config.listeningPort, () => console.log(`Service broker started on
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
     const service = req.params.service;
-    const capabilities = req.query.capabilities && (req.query.capabilities as string).split(',');
+    const capabilities = req.query.capabilities ? (req.query.capabilities as string).split(',') : null;
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
     const payload = config.textMimes.some(x => !!req.is(x)) ? await getStream(req) : await getStream.buffer(req);
 
@@ -165,7 +168,13 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     if (!header.id) header.id = endpointId;
     if (req.get("content-type")) header.contentType = req.get("content-type");
     header.service = {name: service, capabilities};
-    pickRandom(providers).endpoint.send({header, payload});
+
+    const provider = pickRandom(providers);
+    if (provider.httpHeaders) {
+      header.httpHeaders = {};
+      for (const name of provider.httpHeaders) header.httpHeaders[name] = req.get(name);
+    }
+    provider.endpoint.send({header, payload});
     const msg = await promise;
 
     //forward the response
@@ -183,6 +192,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
 }
 
 function getClientIp(req: IncomingMessage) {
+  if (!req.connection.remoteAddress) throw new Error("Connection closed");
   const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
   return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1-config.trustProxy)[0];
 }
@@ -265,7 +275,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   function handleAdvertiseRequest(msg: Message) {
     providerRegistry.remove(endpoint);
     if (msg.header.services) {
-      for (const service of msg.header.services) providerRegistry.add(endpoint, service.name, service.capabilities, service.priority);
+      for (const service of msg.header.services) providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
     }
     if (msg.header.id) endpoint.send({header: {id: msg.header.id, type: "SbAdvertiseResponse"}});
   }

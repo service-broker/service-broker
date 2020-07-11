@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "target": "es6",
-    "newLine": "LF",
-    "noImplicitAny": true,
+    "target": "es2017",
+    "strict": true,
     "moduleResolution": "node",
     "declaration": true,
+    "newLine": "LF",
+    "rootDir": "src",
     "outDir": "dist"
   },
   "include": [

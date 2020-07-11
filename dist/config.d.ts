@@ -7,7 +7,7 @@ declare const _default: {
     corsOptions: CorsOptions;
     textMimes: string[];
     trustProxy: number;
-    rateLimit: RateLimit.Options;
+    rateLimit: RateLimit.Options | undefined;
     basicStats: {
         file: string;
         interval: number;

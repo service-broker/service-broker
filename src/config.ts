@@ -7,7 +7,7 @@ dotenv.config();
 
 assert(process.env.LISTENING_PORT, "Missing env LISTENING_PORT");
 
-let rateLimit: number[];
+let rateLimit: number[]|undefined;
 if (process.env.RATE_LIMIT) {
   assert(process.env.TRUST_PROXY, "Missing env TRUST_PROXY");
   assert(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT");
