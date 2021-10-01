@@ -1,14 +1,7 @@
-/*
-import rewire = require('rewire');
+
 import * as WebSocket from 'ws';
 import config from './config';
-
-const app = rewire("./index.js");
-const pickRandom = app.__get__("pickRandom");
-const messageFromString = app.__get__("messageFromString");
-const messageFromBuffer = app.__get__("messageFromBuffer");
-const providerRegistry = app.__get__("providerRegistry");
-const shutdown = app.__get__("shutdown");
+import { messageFromBuffer, messageFromString, pickRandom, providerRegistry, shutdown } from "./index";
 
 
 afterAll(shutdown);
@@ -64,10 +57,9 @@ describe("test service provider", () => {
     
     function receive(ws: WebSocket) {
         return new Promise(fulfill => {
-            ws.once("message", data => {
-                if (typeof data == "string") fulfill(messageFromString(data));
-                else if (Buffer.isBuffer(data)) fulfill(messageFromBuffer(data));
-                else fulfill(null);
+            ws.once("message", (data: Buffer, isBinary) => {
+                if (isBinary) fulfill(messageFromBuffer(data));
+                else fulfill(messageFromString(data.toString()));
             })
         })
     }
@@ -112,7 +104,7 @@ describe("test service provider", () => {
 
     test("bad request", async () => {
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
+        expect(await receive(p1)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
     })
 
     test("request success", async () => {
@@ -206,7 +198,7 @@ describe("test service provider", () => {
             service:{name:"tts", capabilities:["v2", "v3"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:70, error:"No provider"}
+            header:{id:70, error:"Error: No provider tts"}
         });
 
         //request v1000 should error out (no match)
@@ -215,14 +207,13 @@ describe("test service provider", () => {
             service:{name:"tts", capabilities:["v1000"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:80, error:"No provider"}
+            header:{id:80, error:"Error: No provider tts"}
         });
 
         //check no more messages pending
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
+        expect(await receive(p1)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
         p2.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p2)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
+        expect(await receive(p2)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
     })
 })
-*/

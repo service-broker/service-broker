@@ -2,15 +2,13 @@ import * as cors from "cors";
 import * as express from "express";
 import * as rateLimit from "express-rate-limit";
 import { appendFile } from "fs";
+import * as getStream from "get-stream";
 import { createServer, IncomingMessage } from "http";
+import pTimeout from "p-timeout";
 import { generate as generateId } from 'shortid';
 import * as WebSocket from 'ws';
 import config from "./config";
 import { Counter } from "./stats";
-
-const getStream = require("get-stream");
-const pTimeout = require("p-timeout");
-const pFinally = require("p-finally");
 
 const basicStats = new Counter();
 
@@ -119,7 +117,7 @@ const pending: {[key: string]: (res: Message) => void} = {};
 
 app.set("trust proxy", config.trustProxy);
 app.get("/", (req, res) => res.end("Healthcheck OK"));
-app.options("/:service", cors(config.corsOptions));
+app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
 app.post("/:service", config.rateLimit ? rateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
 
 server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
@@ -136,6 +134,10 @@ async function onHttpPost(req: express.Request, res: express.Response) {
       res.status(400).end("Missing args");
       return;
     }
+
+    header.service = {name: service, capabilities};
+    header.ip = getClientIp(req);
+    if (req.get("content-type")) header.contentType = req.get("content-type");
 
     //update stats
     basicStats.inc(header.method ? `${service}/${header.method}` : service);
@@ -161,13 +163,10 @@ async function onHttpPost(req: express.Request, res: express.Response) {
       pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
     })
     promise = pTimeout(promise, Number(req.query.timeout || 15*1000));
-    promise = pFinally(promise, () => delete pending[endpointId]);
+    promise = promise.finally(() => delete pending[endpointId]);
 
     header.from = endpointId;
-    header.ip = getClientIp(req);
     if (!header.id) header.id = endpointId;
-    if (req.get("content-type")) header.contentType = req.get("content-type");
-    header.service = {name: service, capabilities};
 
     const provider = pickRandom(providers);
     if (provider.httpHeaders) {
@@ -187,7 +186,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     else res.end();
   }
   catch (err) {
-    res.status(500).end(err.message);
+    res.status(500).end(String(err));
   }
 }
 
@@ -200,7 +199,7 @@ function getClientIp(req: IncomingMessage) {
 
 
 const endpoints: {[key: string]: Endpoint} = {};
-const providerRegistry = new ProviderRegistry();
+export const providerRegistry = new ProviderRegistry();
 const wss = new WebSocket.Server({
   server,
   verifyClient: function(info: {origin: string}) {
@@ -213,15 +212,14 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
 
-  ws.on("message", function(data: WebSocket.Data) {
+  ws.on("message", function(data: Buffer, isBinary: boolean) {
     let msg: Message;
     try {
-      if (typeof data == "string") msg = messageFromString(data);
-      else if (Buffer.isBuffer(data)) msg = messageFromBuffer(data);
-      else throw new Error("Message is not a string or Buffer");
+      if (isBinary) msg = messageFromBuffer(data);
+      else msg = messageFromString(data.toString());
     }
     catch (err) {
-      console.error(err.message);
+      console.error(String(err));
       return;
     }
     try {
@@ -237,8 +235,8 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
-      if (msg.header.id) endpoint.send({header: {id: msg.header.id, error: err.message}});
-      else console.error(err.message, msg.header);
+      if (msg.header.id) endpoint.send({header: {id: msg.header.id, error: String(err)}});
+      else console.error(String(err), msg.header);
     }
   })
 
@@ -343,7 +341,7 @@ process.on('uncaughtException', console.error);
 
 
 
-function messageFromString(str: string): Message {
+export function messageFromString(str: string): Message {
   if (str[0] != '{') throw new Error("Message doesn't have JSON header");
   const index = str.indexOf('\n');
   const headerStr = (index != -1) ? str.slice(0,index) : str;
@@ -358,7 +356,7 @@ function messageFromString(str: string): Message {
   return {header, payload};
 }
 
-function messageFromBuffer(buf: Buffer): Message {
+export function messageFromBuffer(buf: Buffer): Message {
   if (buf[0] != 123) throw new Error("Message doesn't have JSON header");
   const index = buf.indexOf('\n');
   const headerStr = (index != -1) ? buf.slice(0,index).toString() : buf.toString();
@@ -373,12 +371,12 @@ function messageFromBuffer(buf: Buffer): Message {
   return {header, payload};
 }
 
-function pickRandom<T>(list: Array<T>): T {
+export function pickRandom<T>(list: Array<T>): T {
   const randomIndex = Math.floor(Math.random() *list.length);
   return list[randomIndex];
 }
 
-function shutdown() {
+export function shutdown() {
   server.close();
   timers.forEach(clearInterval);
 }

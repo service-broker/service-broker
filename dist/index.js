@@ -1,17 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.shutdown = exports.pickRandom = exports.messageFromBuffer = exports.messageFromString = exports.providerRegistry = void 0;
 const cors = require("cors");
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const fs_1 = require("fs");
+const getStream = require("get-stream");
 const http_1 = require("http");
+const p_timeout_1 = require("p-timeout");
 const shortid_1 = require("shortid");
 const WebSocket = require("ws");
 const config_1 = require("./config");
 const stats_1 = require("./stats");
-const getStream = require("get-stream");
-const pTimeout = require("p-timeout");
-const pFinally = require("p-finally");
 const basicStats = new stats_1.Counter();
 class Endpoint {
     constructor(id, ws) {
@@ -91,7 +91,7 @@ class ProviderRegistry {
     }
 }
 const app = express();
-const server = http_1.createServer(app);
+const server = (0, http_1.createServer)(app);
 const pending = {};
 app.set("trust proxy", config_1.default.trustProxy);
 app.get("/", (req, res) => res.end("Healthcheck OK"));
@@ -108,10 +108,14 @@ async function onHttpPost(req, res) {
             res.status(400).end("Missing args");
             return;
         }
+        header.service = { name: service, capabilities };
+        header.ip = getClientIp(req);
+        if (req.get("content-type"))
+            header.contentType = req.get("content-type");
         //update stats
         basicStats.inc(header.method ? `${service}/${header.method}` : service);
         //find providers
-        const providers = providerRegistry.find(service, capabilities);
+        const providers = exports.providerRegistry.find(service, capabilities);
         if (!providers) {
             res.status(404).end("No provider " + service);
             return;
@@ -124,19 +128,15 @@ async function onHttpPost(req, res) {
             return;
         }
         //send to random provider
-        const endpointId = shortid_1.generate();
+        const endpointId = (0, shortid_1.generate)();
         let promise = new Promise((fulfill, reject) => {
             pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
         });
-        promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
-        promise = pFinally(promise, () => delete pending[endpointId]);
+        promise = (0, p_timeout_1.default)(promise, Number(req.query.timeout || 15 * 1000));
+        promise = promise.finally(() => delete pending[endpointId]);
         header.from = endpointId;
-        header.ip = getClientIp(req);
         if (!header.id)
             header.id = endpointId;
-        if (req.get("content-type"))
-            header.contentType = req.get("content-type");
-        header.service = { name: service, capabilities };
         const provider = pickRandom(providers);
         if (provider.httpHeaders) {
             header.httpHeaders = {};
@@ -157,7 +157,7 @@ async function onHttpPost(req, res) {
             res.end();
     }
     catch (err) {
-        res.status(500).end(err.message);
+        res.status(500).end(String(err));
     }
 }
 function getClientIp(req) {
@@ -167,7 +167,7 @@ function getClientIp(req) {
     return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
 const endpoints = {};
-const providerRegistry = new ProviderRegistry();
+exports.providerRegistry = new ProviderRegistry();
 const wss = new WebSocket.Server({
     server,
     verifyClient: function (info) {
@@ -176,20 +176,18 @@ const wss = new WebSocket.Server({
 });
 wss.on("connection", function (ws, upreq) {
     const ip = getClientIp(upreq);
-    const endpointId = shortid_1.generate();
+    const endpointId = (0, shortid_1.generate)();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
-    ws.on("message", function (data) {
+    ws.on("message", function (data, isBinary) {
         let msg;
         try {
-            if (typeof data == "string")
-                msg = messageFromString(data);
-            else if (Buffer.isBuffer(data))
+            if (isBinary)
                 msg = messageFromBuffer(data);
             else
-                throw new Error("Message is not a string or Buffer");
+                msg = messageFromString(data.toString());
         }
         catch (err) {
-            console.error(err.message);
+            console.error(String(err));
             return;
         }
         try {
@@ -212,16 +210,16 @@ wss.on("connection", function (ws, upreq) {
         }
         catch (err) {
             if (msg.header.id)
-                endpoint.send({ header: { id: msg.header.id, error: err.message } });
+                endpoint.send({ header: { id: msg.header.id, error: String(err) } });
             else
-                console.error(err.message, msg.header);
+                console.error(String(err), msg.header);
         }
     });
     ws.on("pong", () => endpoint.isAlive = true);
     ws.on("close", function () {
         var _a;
         delete endpoints[endpointId];
-        providerRegistry.remove(endpoint);
+        exports.providerRegistry.remove(endpoint);
         for (const waiter of endpoint.waiters)
             (_a = endpoints[waiter.endpointId]) === null || _a === void 0 ? void 0 : _a.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse", endpointId } });
     });
@@ -238,7 +236,7 @@ wss.on("connection", function (ws, upreq) {
     }
     function handleServiceRequest(msg) {
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
-        const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+        const providers = exports.providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
         if (providers) {
             msg.header.from = endpointId;
             if (msg.header.service.name.startsWith("#"))
@@ -250,10 +248,10 @@ wss.on("connection", function (ws, upreq) {
             throw new Error("No provider " + msg.header.service.name);
     }
     function handleAdvertiseRequest(msg) {
-        providerRegistry.remove(endpoint);
+        exports.providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
-                providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
+                exports.providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
         }
         if (msg.header.id)
             endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
@@ -261,9 +259,9 @@ wss.on("connection", function (ws, upreq) {
     function handleStatusRequest(msg) {
         const status = {
             numEndpoints: Object.keys(endpoints).length,
-            providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
+            providerRegistry: Object.keys(exports.providerRegistry.registry).map(name => ({
                 service: name,
-                providers: providerRegistry.registry[name].map(provider => ({
+                providers: exports.providerRegistry.registry[name].map(provider => ({
                     endpointId: provider.endpoint.id,
                     capabilities: provider.capabilities && Array.from(provider.capabilities),
                     priority: provider.priority
@@ -299,16 +297,16 @@ wss.on("connection", function (ws, upreq) {
 const timers = [
     setInterval(() => {
         const now = new Date();
-        fs_1.appendFile(config_1.default.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
+        (0, fs_1.appendFile)(config_1.default.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
         basicStats.clear();
     }, config_1.default.basicStats.interval),
     setInterval(() => {
-        for (const endpoint of providerRegistry.endpoints)
+        for (const endpoint of exports.providerRegistry.endpoints)
             endpoint.keepAlive();
     }, config_1.default.providerKeepAlive),
     setInterval(() => {
         for (const id in endpoints)
-            if (!providerRegistry.endpoints.has(endpoints[id]))
+            if (!exports.providerRegistry.endpoints.has(endpoints[id]))
                 endpoints[id].keepAlive();
     }, config_1.default.nonProviderKeepAlive)
 ];
@@ -328,6 +326,7 @@ function messageFromString(str) {
     }
     return { header, payload };
 }
+exports.messageFromString = messageFromString;
 function messageFromBuffer(buf) {
     if (buf[0] != 123)
         throw new Error("Message doesn't have JSON header");
@@ -343,11 +342,14 @@ function messageFromBuffer(buf) {
     }
     return { header, payload };
 }
+exports.messageFromBuffer = messageFromBuffer;
 function pickRandom(list) {
     const randomIndex = Math.floor(Math.random() * list.length);
     return list[randomIndex];
 }
+exports.pickRandom = pickRandom;
 function shutdown() {
     server.close();
     timers.forEach(clearInterval);
 }
+exports.shutdown = shutdown;
