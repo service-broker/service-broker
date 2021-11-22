@@ -95,6 +95,9 @@ class ProviderRegistry {
     }
     else return null;
   }
+  cleanup() {
+    for (const name in this.registry) if (this.registry[name].length == 0) delete this.registry[name];
+  }
 }
 
 interface Status {
@@ -232,6 +235,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
       else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
       else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg);
+      else if (msg.header.type == "SbCleanupRequest") handleCleanupRequest(msg);
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
@@ -313,6 +317,10 @@ wss.on("connection", function(ws: WebSocket, upreq) {
     if (!target) throw new Error("NOT_FOUND");
     if (target.waiters.find(x => x.endpointId == endpointId)) throw new Error("ALREADY_WAITING");
     target.waiters.push({endpointId, responseId: msg.header.id});
+  }
+
+  function handleCleanupRequest(msg: Message) {
+    providerRegistry.cleanup();
   }
 })
 

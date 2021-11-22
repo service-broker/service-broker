@@ -31,6 +31,7 @@ declare class ProviderRegistry {
     add(endpoint: Endpoint, name: string, capabilities: string[], priority: number, httpHeaders: string[]): void;
     remove(endpoint: Endpoint): void;
     find(name: string, requiredCapabilities: string[] | null): Provider[] | null;
+    cleanup(): void;
 }
 export declare const providerRegistry: ProviderRegistry;
 export declare function messageFromString(str: string): Message;
