@@ -4,7 +4,7 @@
 This is a reference implementation of a [Service Broker](https://github.com/ken107/service-broker/wiki/Specification).
 
 ### Starting the Service Broker
-To start the broker: `node ./dist/index`.
+To start the broker: `npm start`.
 To configure the broker: `vi .env`.
 
 Environment Var         | Type   | Description
