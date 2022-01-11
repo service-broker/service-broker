@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.shutdown = exports.pickRandom = exports.messageFromBuffer = exports.messageFromString = exports.providerRegistry = void 0;
 const cors = require("cors");
 const express = require("express");
-const rateLimit = require("express-rate-limit");
+const express_rate_limit_1 = require("express-rate-limit");
 const fs_1 = require("fs");
 const getStream = require("get-stream");
 const http_1 = require("http");
@@ -101,7 +101,7 @@ const pending = {};
 app.set("trust proxy", config_1.default.trustProxy);
 app.get("/", (req, res) => res.end("Healthcheck OK"));
 app.options("/:service", cors(config_1.default.corsOptions));
-app.post("/:service", config_1.default.rateLimit ? rateLimit(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
+app.post("/:service", config_1.default.rateLimit ? (0, express_rate_limit_1.default)(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
 server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
 async function onHttpPost(req, res) {
     try {
@@ -162,7 +162,7 @@ async function onHttpPost(req, res) {
             res.end();
     }
     catch (err) {
-        res.status(500).end(String(err));
+        res.status(500).end(err instanceof Error ? err.message : String(err));
     }
 }
 function getClientIp(req) {
@@ -216,8 +216,14 @@ wss.on("connection", function (ws, upreq) {
                 throw new Error("Don't know what to do with message");
         }
         catch (err) {
-            if (msg.header.id)
-                endpoint.send({ header: { id: msg.header.id, error: String(err) } });
+            if (msg.header.id) {
+                endpoint.send({
+                    header: {
+                        id: msg.header.id,
+                        error: err instanceof Error ? err.message : String(err)
+                    }
+                });
+            }
             else
                 console.error(String(err), msg.header);
         }

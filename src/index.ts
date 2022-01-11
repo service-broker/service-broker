@@ -1,6 +1,6 @@
 import * as cors from "cors";
 import * as express from "express";
-import * as rateLimit from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import { appendFile } from "fs";
 import * as getStream from "get-stream";
 import { createServer, IncomingMessage } from "http";
@@ -189,7 +189,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     else res.end();
   }
   catch (err) {
-    res.status(500).end(String(err));
+    res.status(500).end(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -239,7 +239,14 @@ wss.on("connection", function(ws: WebSocket, upreq) {
       else throw new Error("Don't know what to do with message");
     }
     catch (err) {
-      if (msg.header.id) endpoint.send({header: {id: msg.header.id, error: String(err)}});
+      if (msg.header.id) {
+        endpoint.send({
+          header: {
+            id: msg.header.id,
+            error: err instanceof Error ? err.message : String(err)
+          }
+        })
+      }
       else console.error(String(err), msg.header);
     }
   })

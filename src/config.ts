@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import { CorsOptions } from "cors";
 import * as dotenv from "dotenv";
-import * as RateLimit from "express-rate-limit";
+import { Request } from "express";
 
 dotenv.config();
 
@@ -31,10 +31,10 @@ export default {
     "application/x-www-form-urlencoded",
   ],
   trustProxy: Number(process.env.TRUST_PROXY || 0),
-  rateLimit: rateLimit && <RateLimit.Options>{
+  rateLimit: rateLimit && {
     max: rateLimit[0],
     windowMs: rateLimit[1],
-    onLimitReached: req => console.info("Rate limit exceeded", req.ip),
+    onLimitReached: (req: Request) => console.info("Rate limit exceeded", req.ip),
   },
   basicStats: {
     file: "stats.txt",
