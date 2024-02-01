@@ -1,7 +1,6 @@
 import * as assert from "assert";
 import { CorsOptions } from "cors";
 import * as dotenv from "dotenv";
-import { Request } from "express";
 
 dotenv.config();
 
@@ -34,7 +33,6 @@ export default {
   rateLimit: rateLimit && {
     max: rateLimit[0],
     windowMs: rateLimit[1],
-    onLimitReached: (req: Request) => console.info("Rate limit exceeded", req.ip),
   },
   basicStats: {
     file: "stats.txt",

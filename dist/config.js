@@ -30,7 +30,6 @@ exports.default = {
     rateLimit: rateLimit && {
         max: rateLimit[0],
         windowMs: rateLimit[1],
-        onLimitReached: (req) => console.info("Rate limit exceeded", req.ip),
     },
     basicStats: {
         file: "stats.txt",
