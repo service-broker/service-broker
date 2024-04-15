@@ -3,7 +3,8 @@ import * as express from "express";
 import rateLimit from "express-rate-limit";
 import { appendFile } from "fs";
 import * as getStream from "get-stream";
-import { createServer, IncomingMessage } from "http";
+import * as http from "http";
+import * as https from "https";
 import pTimeout from "p-timeout";
 import { generate as generateId } from 'shortid';
 import * as WebSocket from 'ws';
@@ -114,17 +115,29 @@ interface Status {
 
 
 
-const app = express();
-const server = createServer(app);
+const app = (function() {
+  const app = express()
+  app.set("trust proxy", config.trustProxy);
+  app.get("/", (req, res) => res.end("Healthcheck OK"));
+  app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
+  app.post("/:service", config.rateLimit ? rateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
+  return app
+})();
+
+const httpServer = (function() {
+  const server = http.createServer(app)
+  server.listen(config.listeningPort, () => console.log(`HTTP listener started on ${config.listeningPort}`))
+  return server
+})();
+
+const httpsServer = config.ssl && (function() {
+  const {port, cert, key} = config.ssl
+  const server = https.createServer({cert, key}, app)
+  server.listen(port, () => console.log(`HTTPS listener started on ${port}`))
+  return server
+})();
+
 const pending: {[key: string]: (res: Message) => void} = {};
-
-app.set("trust proxy", config.trustProxy);
-app.get("/", (req, res) => res.end("Healthcheck OK"));
-app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
-app.post("/:service", config.rateLimit ? rateLimit(config.rateLimit) : [], cors(config.corsOptions), onHttpPost);
-
-server.listen(config.listeningPort, () => console.log(`Service broker started on ${config.listeningPort}`));
-
 
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
@@ -193,24 +206,32 @@ async function onHttpPost(req: express.Request, res: express.Response) {
   }
 }
 
-function getClientIp(req: IncomingMessage) {
-  if (!req.connection.remoteAddress) throw new Error("Connection closed");
+function getClientIp(req: http.IncomingMessage) {
+  if (!req.socket.remoteAddress) throw new Error("remoteAddress is null");
   const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
-  return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1-config.trustProxy)[0];
+  return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1-config.trustProxy)[0];
 }
 
 
 
 const endpoints: {[key: string]: Endpoint} = {};
 export const providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({
-  server,
-  verifyClient: function(info: {origin: string}) {
-    return (<RegExp>config.corsOptions.origin).test(info.origin);
-  }
-})
 
-wss.on("connection", function(ws: WebSocket, upreq) {
+const wss = (function() {
+  const server = new WebSocket.Server({server: httpServer, verifyClient})
+  server.on("connection", onConnection)
+})();
+
+const wssl = httpsServer && (function() {
+  const server = new WebSocket.Server({server: httpsServer, verifyClient})
+  server.on("connection", onConnection)
+})();
+
+function verifyClient(info: {origin: string}) {
+  return (<RegExp>config.corsOptions.origin).test(info.origin);
+}
+
+function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const ip = getClientIp(upreq);
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
@@ -329,7 +350,7 @@ wss.on("connection", function(ws: WebSocket, upreq) {
   function handleCleanupRequest(msg: Message) {
     providerRegistry.cleanup();
   }
-})
+}
 
 
 
@@ -392,6 +413,7 @@ export function pickRandom<T>(list: Array<T>): T {
 }
 
 export function shutdown() {
-  server.close();
+  httpServer.close()
+  httpsServer?.close()
   timers.forEach(clearInterval);
 }

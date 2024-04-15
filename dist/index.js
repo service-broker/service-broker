@@ -6,7 +6,8 @@ const express = require("express");
 const express_rate_limit_1 = require("express-rate-limit");
 const fs_1 = require("fs");
 const getStream = require("get-stream");
-const http_1 = require("http");
+const http = require("http");
+const https = require("https");
 const p_timeout_1 = require("p-timeout");
 const shortid_1 = require("shortid");
 const WebSocket = require("ws");
@@ -95,14 +96,26 @@ class ProviderRegistry {
                 delete this.registry[name];
     }
 }
-const app = express();
-const server = (0, http_1.createServer)(app);
+const app = (function () {
+    const app = express();
+    app.set("trust proxy", config_1.default.trustProxy);
+    app.get("/", (req, res) => res.end("Healthcheck OK"));
+    app.options("/:service", cors(config_1.default.corsOptions));
+    app.post("/:service", config_1.default.rateLimit ? (0, express_rate_limit_1.default)(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
+    return app;
+})();
+const httpServer = (function () {
+    const server = http.createServer(app);
+    server.listen(config_1.default.listeningPort, () => console.log(`HTTP listener started on ${config_1.default.listeningPort}`));
+    return server;
+})();
+const httpsServer = config_1.default.ssl && (function () {
+    const { port, cert, key } = config_1.default.ssl;
+    const server = https.createServer({ cert, key }, app);
+    server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
+    return server;
+})();
 const pending = {};
-app.set("trust proxy", config_1.default.trustProxy);
-app.get("/", (req, res) => res.end("Healthcheck OK"));
-app.options("/:service", cors(config_1.default.corsOptions));
-app.post("/:service", config_1.default.rateLimit ? (0, express_rate_limit_1.default)(config_1.default.rateLimit) : [], cors(config_1.default.corsOptions), onHttpPost);
-server.listen(config_1.default.listeningPort, () => console.log(`Service broker started on ${config_1.default.listeningPort}`));
 async function onHttpPost(req, res) {
     try {
         const service = req.params.service;
@@ -166,20 +179,25 @@ async function onHttpPost(req, res) {
     }
 }
 function getClientIp(req) {
-    if (!req.connection.remoteAddress)
-        throw new Error("Connection closed");
+    if (!req.socket.remoteAddress)
+        throw new Error("remoteAddress is null");
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
-    return xForwardedFor.concat(req.connection.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
+    return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
 const endpoints = {};
 exports.providerRegistry = new ProviderRegistry();
-const wss = new WebSocket.Server({
-    server,
-    verifyClient: function (info) {
-        return config_1.default.corsOptions.origin.test(info.origin);
-    }
-});
-wss.on("connection", function (ws, upreq) {
+const wss = (function () {
+    const server = new WebSocket.Server({ server: httpServer, verifyClient });
+    server.on("connection", onConnection);
+})();
+const wssl = httpsServer && (function () {
+    const server = new WebSocket.Server({ server: httpsServer, verifyClient });
+    server.on("connection", onConnection);
+})();
+function verifyClient(info) {
+    return config_1.default.corsOptions.origin.test(info.origin);
+}
+function onConnection(ws, upreq) {
     const ip = getClientIp(upreq);
     const endpointId = (0, shortid_1.generate)();
     const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
@@ -309,7 +327,7 @@ wss.on("connection", function (ws, upreq) {
     function handleCleanupRequest(msg) {
         exports.providerRegistry.cleanup();
     }
-});
+}
 const timers = [
     setInterval(() => {
         const now = new Date();
@@ -365,7 +383,8 @@ function pickRandom(list) {
 }
 exports.pickRandom = pickRandom;
 function shutdown() {
-    server.close();
+    httpServer.close();
+    httpsServer === null || httpsServer === void 0 ? void 0 : httpsServer.close();
     timers.forEach(clearInterval);
 }
 exports.shutdown = shutdown;

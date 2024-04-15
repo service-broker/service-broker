@@ -104,7 +104,7 @@ describe("test service provider", () => {
 
     test("bad request", async () => {
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
+        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
     })
 
     test("request success", async () => {
@@ -118,7 +118,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: "This is the text payload"
         });
 
@@ -129,7 +129,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -140,7 +140,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -151,7 +151,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: "This is the text payload"
         });
 
@@ -162,7 +162,7 @@ describe("test service provider", () => {
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: "This is the text payload"
         });
 
@@ -173,7 +173,7 @@ describe("test service provider", () => {
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: Buffer.from("This is the binary payload")
         });
 
@@ -184,11 +184,11 @@ describe("test service provider", () => {
         }
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
         expect(await receive(p1)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: "This is the text payload"
         })
         expect(await receive(p2)).toEqual({
-            header: Object.assign({from:expect.any(String), ip:"127.0.0.1"}, header),
+            header: Object.assign({from:expect.any(String), ip:"::1"}, header),
             payload: "This is the text payload"
         })
 
@@ -198,7 +198,7 @@ describe("test service provider", () => {
             service:{name:"tts", capabilities:["v2", "v3"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:70, error:"Error: No provider tts"}
+            header:{id:70, error:"No provider tts"}
         });
 
         //request v1000 should error out (no match)
@@ -207,13 +207,13 @@ describe("test service provider", () => {
             service:{name:"tts", capabilities:["v1000"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:80, error:"Error: No provider tts"}
+            header:{id:80, error:"No provider tts"}
         });
 
         //check no more messages pending
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
+        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
         p2.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p2)).toEqual({header:{id:1, error:"Error: Don't know what to do with message"}});
+        expect(await receive(p2)).toEqual({header:{id:1, error:"Don't know what to do with message"}});
     })
 })
