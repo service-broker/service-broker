@@ -1,10 +1,12 @@
 
-import * as WebSocket from 'ws';
+import { Readable } from 'stream';
+import WebSocket from 'ws';
 import config from './config';
-import { messageFromBuffer, messageFromString, pickRandom, providerRegistry, shutdown } from "./index";
-
+import { providerRegistry, shutdown } from "./index";
+import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
 
 afterAll(shutdown);
+
 
 describe("test helper functions", () => {
     test("pickRandom", () => {
@@ -27,7 +29,30 @@ describe("test helper functions", () => {
         expect(messageFromBuffer(Buffer.from('{"a":1}\n'))).toEqual({header:{a:1}, payload:Buffer.from("")});
         expect(messageFromBuffer(Buffer.from('{"a":1}\nCrap'))).toEqual({header:{a:1}, payload:Buffer.from("Crap")});
     })
+
+    test("getStream", async () => {
+        const readable = new Readable()
+        readable._read = () => {}
+        const promise = getStream(readable).then(x => x.toString())
+        readable.push("Hello, ")
+        await new Promise<void>(f => setTimeout(f, 100))
+        readable.push("world")
+        readable.push(null)
+        await expect(promise).resolves.toBe("Hello, world")
+    })
+
+    test("pTimeout success", async () => {
+        const promise = pTimeout(new Promise<string>(f => setTimeout(() => f("Success"), 100)), 200)
+        await expect(promise).resolves.toBe("Success")
+    })
+
+    test("pTimeout timeout", async () => {
+        const promise = pTimeout(new Promise<void>(f => setTimeout(f, 200)), 100)
+        await expect(promise).rejects.toEqual(new Error("Timeout"))
+    })
 })
+
+
 
 describe("test service provider", () => {
     let p1: WebSocket;

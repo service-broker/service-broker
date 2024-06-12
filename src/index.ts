@@ -1,118 +1,15 @@
-import * as cors from "cors";
-import * as express from "express";
+import cors from "cors";
+import express from "express";
 import rateLimit from "express-rate-limit";
 import { appendFile } from "fs";
-import * as getStream from "get-stream";
-import * as http from "http";
-import * as https from "https";
-import pTimeout from "p-timeout";
-import { generate as generateId } from 'shortid';
-import * as WebSocket from 'ws';
+import http from "http";
+import https from "https";
+import WebSocket, { WebSocketServer } from 'ws';
 import config from "./config";
+import { Endpoint, Message, makeEndpoint } from "./endpoint";
+import { ProviderRegistry } from "./provider";
 import { Counter } from "./stats";
-
-const basicStats = new Counter();
-
-
-interface Message {
-  header: any;
-  payload?: string|Buffer;
-}
-
-class Endpoint {
-  isAlive: boolean;
-  waiters: {endpointId: string, responseId: number}[];
-  constructor(public id: string, private ws: WebSocket) {
-    this.isAlive = true;
-    this.waiters = [];
-  }
-  send(msg: Message) {
-    const headerStr = JSON.stringify(msg.header);
-    if (msg.payload) {
-      if (typeof msg.payload == "string") {
-        this.ws.send(headerStr + '\n' + msg.payload);
-      }
-      else if (Buffer.isBuffer(msg.payload)) {
-        const headerLen = Buffer.byteLength(headerStr);
-        const tmp = Buffer.allocUnsafe(headerLen +1 +msg.payload.length);
-        tmp.write(headerStr);
-        tmp[headerLen] = 10;
-        msg.payload.copy(tmp, headerLen+1);
-        this.ws.send(tmp);
-      }
-      else throw new Error("Unexpected");
-    }
-    else this.ws.send(headerStr);
-  }
-  keepAlive() {
-    if (!this.isAlive) return this.ws.terminate();
-    this.isAlive = false;
-    this.ws.ping();
-  }
-}
-
-interface Provider {
-  endpoint: Endpoint;
-  capabilities: Set<string>;
-  priority: number;
-  httpHeaders: string[];
-}
-
-class ProviderRegistry {
-  readonly registry: {[key: string]: Provider[]};
-  readonly endpoints: Set<Endpoint>;
-  constructor() {
-    this.registry = {};
-    this.endpoints = new Set<Endpoint>();
-  }
-  add(endpoint: Endpoint, name: string, capabilities: string[], priority: number, httpHeaders: string[]) {
-    const list = this.registry[name] || (this.registry[name] = []);
-    //keep sorted in descending priority
-    const index = list.findIndex(x => x.priority < priority);
-    const provider: Provider = {
-      endpoint,
-      capabilities: capabilities && new Set(capabilities),
-      priority,
-      httpHeaders,
-    };
-    if (index != -1) list.splice(index, 0, provider);
-    else list.push(provider);
-    this.endpoints.add(endpoint);
-  }
-  remove(endpoint: Endpoint) {
-    if (this.endpoints.has(endpoint)) {
-      for (const name in this.registry) this.registry[name] = this.registry[name].filter(x => x.endpoint != endpoint);
-      this.endpoints.delete(endpoint);
-    }
-  }
-  find(name: string, requiredCapabilities: string[]|null): Provider[]|null {
-    const list = this.registry[name];
-    if (list) {
-      const capableProviders = requiredCapabilities
-        ? list.filter(provider => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x)))
-        : list;
-      if (capableProviders.length) return capableProviders.filter(x => x.priority == capableProviders[0].priority);
-      else return null;
-    }
-    else return null;
-  }
-  cleanup() {
-    for (const name in this.registry) if (this.registry[name].length == 0) delete this.registry[name];
-  }
-}
-
-interface Status {
-  numEndpoints: number;
-  providerRegistry: Array<{
-    service: string,
-    providers: Array<{
-      endpointId: string,
-      capabilities: string[],
-      priority: number
-    }>
-  }>
-}
-
+import { generateId, getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
 
 
 const app = (function() {
@@ -137,14 +34,32 @@ const httpsServer = config.ssl && (function() {
   return server
 })();
 
+const wsServer = (function() {
+  const server = new WebSocketServer({server: httpServer, verifyClient})
+  server.on("connection", onConnection)
+  return server
+})();
+
+const wssServer = httpsServer && (function() {
+  const server = new WebSocketServer({server: httpsServer, verifyClient})
+  server.on("connection", onConnection)
+  return server
+})();
+
+const endpoints: {[key: string]: Endpoint} = {};
+const providerRegistry = new ProviderRegistry();
 const pending: {[key: string]: (res: Message) => void} = {};
+const basicStats = new Counter()
+
+
 
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
     const service = req.params.service;
     const capabilities = req.query.capabilities ? (req.query.capabilities as string).split(',') : null;
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
-    const payload = config.textMimes.some(x => !!req.is(x)) ? await getStream(req) : await getStream.buffer(req);
+    const payload = await getStream(req)
+      .then(buffer => req.is(config.textMimes) ? buffer.toString() : buffer)
 
     if (!service) {
       res.status(400).end("Missing args");
@@ -214,19 +129,6 @@ function getClientIp(req: http.IncomingMessage) {
 
 
 
-const endpoints: {[key: string]: Endpoint} = {};
-export const providerRegistry = new ProviderRegistry();
-
-const wss = (function() {
-  const server = new WebSocket.Server({server: httpServer, verifyClient})
-  server.on("connection", onConnection)
-})();
-
-const wssl = httpsServer && (function() {
-  const server = new WebSocket.Server({server: httpsServer, verifyClient})
-  server.on("connection", onConnection)
-})();
-
 function verifyClient(info: {origin: string}) {
   return (<RegExp>config.corsOptions.origin).test(info.origin);
 }
@@ -234,7 +136,7 @@ function verifyClient(info: {origin: string}) {
 function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const ip = getClientIp(upreq);
   const endpointId = generateId();
-  const endpoint = endpoints[endpointId] = new Endpoint(endpointId, ws);
+  const endpoint = endpoints[endpointId] = makeEndpoint(endpointId, ws)
 
   ws.on("message", function(data: Buffer, isBinary: boolean) {
     let msg: Message;
@@ -311,7 +213,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleStatusRequest(msg: Message) {
-    const status: Status = {
+    const status = {
       numEndpoints: Object.keys(endpoints).length,
       providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
         service: name,
@@ -375,45 +277,14 @@ const timers = [
 
 process.on('uncaughtException', console.error);
 
-
-
-export function messageFromString(str: string): Message {
-  if (str[0] != '{') throw new Error("Message doesn't have JSON header");
-  const index = str.indexOf('\n');
-  const headerStr = (index != -1) ? str.slice(0,index) : str;
-  const payload = (index != -1) ? str.slice(index+1) : undefined;
-  let header: any;
-  try {
-    header = JSON.parse(headerStr);
-  }
-  catch (err) {
-    throw new Error("Failed to parse message header");
-  }
-  return {header, payload};
-}
-
-export function messageFromBuffer(buf: Buffer): Message {
-  if (buf[0] != 123) throw new Error("Message doesn't have JSON header");
-  const index = buf.indexOf('\n');
-  const headerStr = (index != -1) ? buf.slice(0,index).toString() : buf.toString();
-  const payload = (index != -1) ? buf.slice(index+1) : undefined;
-  let header: any;
-  try {
-    header = JSON.parse(headerStr);
-  }
-  catch (err) {
-    throw new Error("Failed to parse message header");
-  }
-  return {header, payload};
-}
-
-export function pickRandom<T>(list: Array<T>): T {
-  const randomIndex = Math.floor(Math.random() *list.length);
-  return list[randomIndex];
-}
-
-export function shutdown() {
+function shutdown() {
   httpServer.close()
   httpsServer?.close()
   timers.forEach(clearInterval);
+}
+
+//for testing
+export {
+  providerRegistry,
+  shutdown
 }

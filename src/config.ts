@@ -1,7 +1,7 @@
-import * as assert from "assert";
+import assert from "assert";
 import { CorsOptions } from "cors";
-import * as dotenv from "dotenv";
-import * as fs from "fs";
+import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 

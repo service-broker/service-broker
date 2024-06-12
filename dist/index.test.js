@@ -1,28 +1,51 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const WebSocket = require("ws");
-const config_1 = require("./config");
+const stream_1 = require("stream");
+const ws_1 = __importDefault(require("ws"));
+const config_1 = __importDefault(require("./config"));
 const index_1 = require("./index");
+const util_1 = require("./util");
 afterAll(index_1.shutdown);
 describe("test helper functions", () => {
     test("pickRandom", () => {
         const list = [1, 2, 3, 4, 5, 6, 7];
         for (let i = 0; i < 100; i++)
-            expect(list.indexOf((0, index_1.pickRandom)(list))).not.toBe(-1);
+            expect(list.indexOf((0, util_1.pickRandom)(list))).not.toBe(-1);
     });
     test("messageFromString", () => {
-        expect(() => (0, index_1.messageFromString)('bad')).toThrow("Message doesn't have JSON header");
-        expect(() => (0, index_1.messageFromString)('{bad}\nCrap')).toThrow("Failed to parse message header");
-        expect((0, index_1.messageFromString)('{"a":1}')).toEqual({ header: { a: 1 } });
-        expect((0, index_1.messageFromString)('{"a":1}\n')).toEqual({ header: { a: 1 }, payload: "" });
-        expect((0, index_1.messageFromString)('{"a":1}\nCrap')).toEqual({ header: { a: 1 }, payload: "Crap" });
+        expect(() => (0, util_1.messageFromString)('bad')).toThrow("Message doesn't have JSON header");
+        expect(() => (0, util_1.messageFromString)('{bad}\nCrap')).toThrow("Failed to parse message header");
+        expect((0, util_1.messageFromString)('{"a":1}')).toEqual({ header: { a: 1 } });
+        expect((0, util_1.messageFromString)('{"a":1}\n')).toEqual({ header: { a: 1 }, payload: "" });
+        expect((0, util_1.messageFromString)('{"a":1}\nCrap')).toEqual({ header: { a: 1 }, payload: "Crap" });
     });
     test("messageFromBuffer", () => {
-        expect(() => (0, index_1.messageFromBuffer)(Buffer.from('bad'))).toThrow("Message doesn't have JSON header");
-        expect(() => (0, index_1.messageFromBuffer)(Buffer.from('{bad}\nCrap'))).toThrow("Failed to parse message header");
-        expect((0, index_1.messageFromBuffer)(Buffer.from('{"a":1}'))).toEqual({ header: { a: 1 } });
-        expect((0, index_1.messageFromBuffer)(Buffer.from('{"a":1}\n'))).toEqual({ header: { a: 1 }, payload: Buffer.from("") });
-        expect((0, index_1.messageFromBuffer)(Buffer.from('{"a":1}\nCrap'))).toEqual({ header: { a: 1 }, payload: Buffer.from("Crap") });
+        expect(() => (0, util_1.messageFromBuffer)(Buffer.from('bad'))).toThrow("Message doesn't have JSON header");
+        expect(() => (0, util_1.messageFromBuffer)(Buffer.from('{bad}\nCrap'))).toThrow("Failed to parse message header");
+        expect((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}'))).toEqual({ header: { a: 1 } });
+        expect((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}\n'))).toEqual({ header: { a: 1 }, payload: Buffer.from("") });
+        expect((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}\nCrap'))).toEqual({ header: { a: 1 }, payload: Buffer.from("Crap") });
+    });
+    test("getStream", async () => {
+        const readable = new stream_1.Readable();
+        readable._read = () => { };
+        const promise = (0, util_1.getStream)(readable).then(x => x.toString());
+        readable.push("Hello, ");
+        await new Promise(f => setTimeout(f, 100));
+        readable.push("world");
+        readable.push(null);
+        await expect(promise).resolves.toBe("Hello, world");
+    });
+    test("pTimeout success", async () => {
+        const promise = (0, util_1.pTimeout)(new Promise(f => setTimeout(() => f("Success"), 100)), 200);
+        await expect(promise).resolves.toBe("Success");
+    });
+    test("pTimeout timeout", async () => {
+        const promise = (0, util_1.pTimeout)(new Promise(f => setTimeout(f, 200)), 100);
+        await expect(promise).rejects.toEqual(new Error("Timeout"));
     });
 });
 describe("test service provider", () => {
@@ -30,9 +53,9 @@ describe("test service provider", () => {
     let p2;
     let c1;
     beforeEach(async () => {
-        p1 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
-        p2 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
-        c1 = new WebSocket(`ws://localhost:${config_1.default.listeningPort}`);
+        p1 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
+        p2 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
+        c1 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
         await Promise.all([
             new Promise(fulfill => p1.once("open", fulfill)),
             new Promise(fulfill => p2.once("open", fulfill)),
@@ -53,9 +76,9 @@ describe("test service provider", () => {
         return new Promise(fulfill => {
             ws.once("message", (data, isBinary) => {
                 if (isBinary)
-                    fulfill((0, index_1.messageFromBuffer)(data));
+                    fulfill((0, util_1.messageFromBuffer)(data));
                 else
-                    fulfill((0, index_1.messageFromString)(data.toString()));
+                    fulfill((0, util_1.messageFromString)(data.toString()));
             });
         });
     }
