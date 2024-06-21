@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.makeEndpoint = void 0;
+exports.makeEndpoint = makeEndpoint;
 function makeEndpoint(id, ws) {
     return {
         id,
@@ -36,4 +36,3 @@ function makeEndpoint(id, ws) {
         }
     };
 }
-exports.makeEndpoint = makeEndpoint;

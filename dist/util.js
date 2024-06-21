@@ -1,6 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateId = exports.pTimeout = exports.getStream = exports.pickRandom = exports.messageFromBuffer = exports.messageFromString = void 0;
+exports.messageFromString = messageFromString;
+exports.messageFromBuffer = messageFromBuffer;
+exports.pickRandom = pickRandom;
+exports.getStream = getStream;
+exports.pTimeout = pTimeout;
+exports.generateId = generateId;
 function messageFromString(str) {
     if (str[0] != '{')
         throw new Error("Message doesn't have JSON header");
@@ -16,7 +21,6 @@ function messageFromString(str) {
     }
     return { header, payload };
 }
-exports.messageFromString = messageFromString;
 function messageFromBuffer(buf) {
     if (buf[0] != 123)
         throw new Error("Message doesn't have JSON header");
@@ -32,12 +36,10 @@ function messageFromBuffer(buf) {
     }
     return { header, payload };
 }
-exports.messageFromBuffer = messageFromBuffer;
 function pickRandom(list) {
     const randomIndex = Math.floor(Math.random() * list.length);
     return list[randomIndex];
 }
-exports.pickRandom = pickRandom;
 function getStream(stream) {
     return new Promise((fulfill, reject) => {
         const chunks = [];
@@ -46,7 +48,6 @@ function getStream(stream) {
         stream.once("error", reject);
     });
 }
-exports.getStream = getStream;
 function concatChunks(chunks) {
     let size = 0;
     for (const chunk of chunks) {
@@ -69,8 +70,6 @@ function pTimeout(promise, millis) {
             .then(() => Promise.reject(new Error("Timeout")))
     ]);
 }
-exports.pTimeout = pTimeout;
 function generateId() {
     return Math.random().toString(36).slice(2);
 }
-exports.generateId = generateId;

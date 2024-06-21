@@ -7,9 +7,9 @@ const assert_1 = __importDefault(require("assert"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const fs_1 = __importDefault(require("fs"));
 dotenv_1.default.config();
-(0, assert_1.default)(process.env.LISTENING_PORT, "Missing env LISTENING_PORT");
+(0, assert_1.default)(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 exports.default = {
-    listeningPort: Number(process.env.LISTENING_PORT),
+    listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),
     ssl: (function () {
         if (process.env.SSL_PORT) {
             (0, assert_1.default)(process.env.SSL_CERT, "Missing env SSL_CERT");

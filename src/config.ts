@@ -5,10 +5,10 @@ import fs from "fs";
 
 dotenv.config();
 
-assert(process.env.LISTENING_PORT, "Missing env LISTENING_PORT");
+assert(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 
 export default {
-  listeningPort: Number(process.env.LISTENING_PORT),
+  listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),
   ssl: (function() {
     if (process.env.SSL_PORT) {
       assert(process.env.SSL_CERT, "Missing env SSL_CERT")

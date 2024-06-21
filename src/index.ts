@@ -21,7 +21,7 @@ const app = (function() {
   return app
 })();
 
-const httpServer = (function() {
+const httpServer = config.listeningPort == undefined ? undefined : (function() {
   const server = http.createServer(app)
   server.listen(config.listeningPort, () => console.log(`HTTP listener started on ${config.listeningPort}`))
   return server
@@ -34,7 +34,7 @@ const httpsServer = config.ssl && (function() {
   return server
 })();
 
-const wsServer = (function() {
+const wsServer = httpServer && (function() {
   const server = new WebSocketServer({server: httpServer, verifyClient})
   server.on("connection", onConnection)
   return server
@@ -278,7 +278,7 @@ const timers = [
 process.on('uncaughtException', console.error);
 
 function shutdown() {
-  httpServer.close()
+  httpServer?.close()
   httpsServer?.close()
   timers.forEach(clearInterval);
 }

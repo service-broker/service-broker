@@ -3,7 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.shutdown = exports.providerRegistry = void 0;
+exports.providerRegistry = void 0;
+exports.shutdown = shutdown;
 const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
@@ -24,7 +25,7 @@ const app = (function () {
     app.post("/:service", config_1.default.rateLimit ? (0, express_rate_limit_1.default)(config_1.default.rateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
     return app;
 })();
-const httpServer = (function () {
+const httpServer = config_1.default.listeningPort == undefined ? undefined : (function () {
     const server = http_1.default.createServer(app);
     server.listen(config_1.default.listeningPort, () => console.log(`HTTP listener started on ${config_1.default.listeningPort}`));
     return server;
@@ -35,7 +36,7 @@ const httpsServer = config_1.default.ssl && (function () {
     server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
     return server;
 })();
-const wsServer = (function () {
+const wsServer = httpServer && (function () {
     const server = new ws_1.WebSocketServer({ server: httpServer, verifyClient });
     server.on("connection", onConnection);
     return server;
@@ -270,8 +271,7 @@ const timers = [
 ];
 process.on('uncaughtException', console.error);
 function shutdown() {
-    httpServer.close();
+    httpServer?.close();
     httpsServer?.close();
     timers.forEach(clearInterval);
 }
-exports.shutdown = shutdown;
