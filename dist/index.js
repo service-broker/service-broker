@@ -31,9 +31,15 @@ const httpServer = config_1.default.listeningPort == undefined ? undefined : (fu
     return server;
 })();
 const httpsServer = config_1.default.ssl && (function () {
-    const { port, cert, key } = config_1.default.ssl;
-    const server = https_1.default.createServer({ cert, key }, app);
+    const { port, certFile, keyFile } = config_1.default.ssl;
+    const readCerts = () => ({
+        cert: (0, fs_1.readFileSync)(certFile),
+        key: (0, fs_1.readFileSync)(keyFile)
+    });
+    const server = https_1.default.createServer(readCerts(), app);
     server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
+    const timer = setInterval(() => server.setSecureContext(readCerts()), 24 * 3600 * 1000);
+    server.once("close", () => clearInterval(timer));
     return server;
 })();
 const wsServer = httpServer && (function () {

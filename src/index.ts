@@ -1,7 +1,7 @@
 import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { appendFile } from "fs";
+import { appendFile, readFileSync } from "fs";
 import http from "http";
 import https from "https";
 import WebSocket, { WebSocketServer } from 'ws';
@@ -28,9 +28,15 @@ const httpServer = config.listeningPort == undefined ? undefined : (function() {
 })();
 
 const httpsServer = config.ssl && (function() {
-  const {port, cert, key} = config.ssl
-  const server = https.createServer({cert, key}, app)
+  const {port, certFile, keyFile} = config.ssl
+  const readCerts = () => ({
+    cert: readFileSync(certFile),
+    key: readFileSync(keyFile)
+  })
+  const server = https.createServer(readCerts(), app)
   server.listen(port, () => console.log(`HTTPS listener started on ${port}`))
+  const timer = setInterval(() => server.setSecureContext(readCerts()), 24*3600*1000)
+  server.once("close", () => clearInterval(timer))
   return server
 })();
 

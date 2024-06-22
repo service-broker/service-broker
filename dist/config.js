@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert_1 = __importDefault(require("assert"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const fs_1 = __importDefault(require("fs"));
 dotenv_1.default.config();
 (0, assert_1.default)(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 exports.default = {
@@ -16,8 +15,8 @@ exports.default = {
             (0, assert_1.default)(process.env.SSL_KEY, "Missing env SSL_KEY");
             return {
                 port: Number(process.env.SSL_PORT),
-                cert: fs_1.default.readFileSync(process.env.SSL_CERT),
-                key: fs_1.default.readFileSync(process.env.SSL_KEY)
+                certFile: process.env.SSL_CERT,
+                keyFile: process.env.SSL_KEY
             };
         }
     })(),

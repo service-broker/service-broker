@@ -1,7 +1,6 @@
 import assert from "assert";
 import { CorsOptions } from "cors";
 import dotenv from "dotenv";
-import fs from "fs";
 
 dotenv.config();
 
@@ -15,8 +14,8 @@ export default {
       assert(process.env.SSL_KEY, "Missing env SSL_KEY")
       return {
         port: Number(process.env.SSL_PORT),
-        cert: fs.readFileSync(process.env.SSL_CERT),
-        key: fs.readFileSync(process.env.SSL_KEY)
+        certFile: process.env.SSL_CERT,
+        keyFile: process.env.SSL_KEY
       }
     }
   })(),
