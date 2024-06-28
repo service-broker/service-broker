@@ -1,11 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.immediate = immediate;
 exports.messageFromString = messageFromString;
 exports.messageFromBuffer = messageFromBuffer;
 exports.pickRandom = pickRandom;
 exports.getStream = getStream;
 exports.pTimeout = pTimeout;
 exports.generateId = generateId;
+exports.makeRateLimiter = makeRateLimiter;
+function immediate(func) {
+    return func();
+}
 function messageFromString(str) {
     if (str[0] != '{')
         throw new Error("Message doesn't have JSON header");
@@ -72,4 +77,23 @@ function pTimeout(promise, millis) {
 }
 function generateId() {
     return Math.random().toString(36).slice(2);
+}
+function makeRateLimiter({ tokensPerInterval, interval }) {
+    let avail = 0, expire = 0;
+    return {
+        tryRemoveTokens(count) {
+            const now = Date.now();
+            if (expire <= now) {
+                avail = tokensPerInterval;
+                expire = now + interval;
+            }
+            if (count <= avail) {
+                avail -= count;
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+    };
 }

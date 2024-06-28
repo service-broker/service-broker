@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert_1 = __importDefault(require("assert"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const util_1 = require("./util");
 dotenv_1.default.config();
 (0, assert_1.default)(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 exports.default = {
@@ -20,6 +21,7 @@ exports.default = {
             };
         }
     })(),
+    adminSecret: process.env.ADMIN_SECRET,
     providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15 * 1000),
     nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15 * 60 * 1000),
     corsOptions: {
@@ -35,17 +37,17 @@ exports.default = {
         "application/x-www-form-urlencoded",
     ],
     trustProxy: Number(process.env.TRUST_PROXY || 0),
-    rateLimit: (function () {
+    serviceRequestRateLimit: (0, util_1.immediate)(() => {
         if (process.env.RATE_LIMIT) {
             (0, assert_1.default)(process.env.TRUST_PROXY, "Missing env TRUST_PROXY");
             (0, assert_1.default)(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT");
             const rateLimit = process.env.RATE_LIMIT.split(",").map(Number);
             return {
-                max: rateLimit[0],
+                limit: rateLimit[0],
                 windowMs: rateLimit[1],
             };
         }
-    })(),
+    }),
     basicStats: {
         file: "stats.txt",
         interval: 5 * 60 * 1000

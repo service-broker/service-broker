@@ -1,6 +1,10 @@
 import Stream from "stream";
 import { Message } from "./endpoint";
 
+export function immediate<T>(func: () => T) {
+  return func()
+}
+
 export function messageFromString(str: string): Message {
   if (str[0] != '{') throw new Error("Message doesn't have JSON header");
   const index = str.indexOf('\n');
@@ -71,4 +75,27 @@ export function pTimeout<T>(promise: Promise<T>, millis: number): Promise<T> {
 
 export function generateId() {
   return Math.random().toString(36).slice(2)
+}
+
+export function makeRateLimiter({tokensPerInterval, interval}: {
+  tokensPerInterval: number,
+  interval: number
+}) {
+  let avail = 0, expire = 0
+  return {
+    tryRemoveTokens(count: number) {
+      const now = Date.now()
+      if (expire <= now) {
+        avail = tokensPerInterval
+        expire = now + interval
+      }
+      if (count <= avail) {
+        avail -= count
+        return true
+      }
+      else {
+        return false
+      }
+    }
+  }
 }

@@ -17,41 +17,49 @@ const endpoint_1 = require("./endpoint");
 const provider_1 = require("./provider");
 const stats_1 = require("./stats");
 const util_1 = require("./util");
-const app = (function () {
+const app = (0, util_1.immediate)(() => {
     const app = (0, express_1.default)();
     app.set("trust proxy", config_1.default.trustProxy);
     app.get("/", (req, res) => res.end("Healthcheck OK"));
     app.options("/:service", (0, cors_1.default)(config_1.default.corsOptions));
-    app.post("/:service", config_1.default.rateLimit ? (0, express_rate_limit_1.default)(config_1.default.rateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
+    app.post("/:service", config_1.default.serviceRequestRateLimit ? (0, express_rate_limit_1.default)(config_1.default.serviceRequestRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
     return app;
-})();
-const httpServer = config_1.default.listeningPort == undefined ? undefined : (function () {
-    const server = http_1.default.createServer(app);
-    server.listen(config_1.default.listeningPort, () => console.log(`HTTP listener started on ${config_1.default.listeningPort}`));
-    return server;
-})();
-const httpsServer = config_1.default.ssl && (function () {
-    const { port, certFile, keyFile } = config_1.default.ssl;
-    const readCerts = () => ({
-        cert: (0, fs_1.readFileSync)(certFile),
-        key: (0, fs_1.readFileSync)(keyFile)
-    });
-    const server = https_1.default.createServer(readCerts(), app);
-    server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
-    const timer = setInterval(() => server.setSecureContext(readCerts()), 24 * 3600 * 1000);
-    server.once("close", () => clearInterval(timer));
-    return server;
-})();
-const wsServer = httpServer && (function () {
-    const server = new ws_1.WebSocketServer({ server: httpServer, verifyClient });
-    server.on("connection", onConnection);
-    return server;
-})();
-const wssServer = httpsServer && (function () {
-    const server = new ws_1.WebSocketServer({ server: httpsServer, verifyClient });
-    server.on("connection", onConnection);
-    return server;
-})();
+});
+const httpServer = (0, util_1.immediate)(() => {
+    if (config_1.default.listeningPort) {
+        const server = http_1.default.createServer(app);
+        server.listen(config_1.default.listeningPort, () => console.log(`HTTP listener started on ${config_1.default.listeningPort}`));
+        return server;
+    }
+});
+const httpsServer = (0, util_1.immediate)(() => {
+    if (config_1.default.ssl) {
+        const { port, certFile, keyFile } = config_1.default.ssl;
+        const readCerts = () => ({
+            cert: (0, fs_1.readFileSync)(certFile),
+            key: (0, fs_1.readFileSync)(keyFile)
+        });
+        const server = https_1.default.createServer(readCerts(), app);
+        server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
+        const timer = setInterval(() => server.setSecureContext(readCerts()), 24 * 3600 * 1000);
+        server.once("close", () => clearInterval(timer));
+        return server;
+    }
+});
+const wsServer = (0, util_1.immediate)(() => {
+    if (httpServer) {
+        const server = new ws_1.WebSocketServer({ server: httpServer, verifyClient });
+        server.on("connection", onConnection);
+        return server;
+    }
+});
+const wssServer = (0, util_1.immediate)(() => {
+    if (httpsServer) {
+        const server = new ws_1.WebSocketServer({ server: httpsServer, verifyClient });
+        server.on("connection", onConnection);
+        return server;
+    }
+});
 const endpoints = {};
 const providerRegistry = new provider_1.ProviderRegistry();
 exports.providerRegistry = providerRegistry;
@@ -133,6 +141,30 @@ function onConnection(ws, upreq) {
     const ip = getClientIp(upreq);
     const endpointId = (0, util_1.generateId)();
     const endpoint = endpoints[endpointId] = (0, endpoint_1.makeEndpoint)(endpointId, ws);
+    const serviceRequestRateLimiter = (0, util_1.immediate)(() => {
+        if (config_1.default.serviceRequestRateLimit) {
+            const limiter = (0, util_1.makeRateLimiter)({
+                tokensPerInterval: config_1.default.serviceRequestRateLimit.limit,
+                interval: config_1.default.serviceRequestRateLimit.windowMs
+            });
+            return {
+                apply() {
+                    if (!limiter.tryRemoveTokens(1))
+                        throw new Error("Rate limit exceeded");
+                }
+            };
+        }
+    });
+    const adminSecretValidator = (0, util_1.immediate)(() => {
+        if (config_1.default.adminSecret) {
+            return {
+                apply(msg) {
+                    if (msg.header.adminSecret != config_1.default.adminSecret)
+                        throw new Error("Forbidden");
+                }
+            };
+        }
+    });
     ws.on("message", function (data, isBinary) {
         let msg;
         try {
@@ -148,10 +180,8 @@ function onConnection(ws, upreq) {
         try {
             if (msg.header.to)
                 handleForward(msg);
-            else if (msg.header.service) {
-                msg.header.ip = ip;
-                handleServiceRequest(msg);
-            }
+            else if (msg.header.service)
+                handleServiceRequest(msg, ip);
             else if (msg.header.type == "SbAdvertiseRequest")
                 handleAdvertiseRequest(msg);
             else if (msg.header.type == "SbStatusRequest")
@@ -187,6 +217,9 @@ function onConnection(ws, upreq) {
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
+            //if this is a service request, apply rate limit
+            if (msg.header.service)
+                serviceRequestRateLimiter?.apply();
             msg.header.from = endpointId;
             endpoints[msg.header.to].send(msg);
         }
@@ -196,8 +229,10 @@ function onConnection(ws, upreq) {
         else
             throw new Error("Destination endpoint not found");
     }
-    function handleServiceRequest(msg) {
+    function handleServiceRequest(msg, ip) {
+        serviceRequestRateLimiter?.apply();
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
+        msg.header.ip = ip;
         const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
         if (providers) {
             msg.header.from = endpointId;
@@ -210,6 +245,7 @@ function onConnection(ws, upreq) {
             throw new Error("No provider " + msg.header.service.name);
     }
     function handleAdvertiseRequest(msg) {
+        adminSecretValidator?.apply(msg);
         providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
@@ -219,6 +255,7 @@ function onConnection(ws, upreq) {
             endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
     }
     function handleStatusRequest(msg) {
+        adminSecretValidator?.apply(msg);
         const status = {
             numEndpoints: Object.keys(endpoints).length,
             providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
@@ -239,6 +276,7 @@ function onConnection(ws, upreq) {
         }
     }
     function handleEndpointStatusRequest(msg) {
+        adminSecretValidator?.apply(msg);
         endpoint.send({
             header: {
                 id: msg.header.id,
@@ -248,6 +286,7 @@ function onConnection(ws, upreq) {
         });
     }
     function handleEndpointWaitRequest(msg) {
+        adminSecretValidator?.apply(msg);
         const target = endpoints[msg.header.endpointId];
         if (!target)
             throw new Error("NOT_FOUND");
@@ -256,6 +295,7 @@ function onConnection(ws, upreq) {
         target.waiters.push({ endpointId, responseId: msg.header.id });
     }
     function handleCleanupRequest(msg) {
+        adminSecretValidator?.apply(msg);
         providerRegistry.cleanup();
     }
 }

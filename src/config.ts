@@ -1,6 +1,7 @@
 import assert from "assert";
 import { CorsOptions } from "cors";
 import dotenv from "dotenv";
+import { immediate } from "./util";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ export default {
     }
   })(),
 
+  adminSecret: process.env.ADMIN_SECRET,
   providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15*1000),
   nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15*60*1000),
 
@@ -38,17 +40,17 @@ export default {
 
   trustProxy: Number(process.env.TRUST_PROXY || 0),
 
-  rateLimit: (function() {
+  serviceRequestRateLimit: immediate(() => {
     if (process.env.RATE_LIMIT) {
       assert(process.env.TRUST_PROXY, "Missing env TRUST_PROXY")
       assert(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT")
       const rateLimit = process.env.RATE_LIMIT.split(",").map(Number)
       return {
-        max: rateLimit[0],
+        limit: rateLimit[0],
         windowMs: rateLimit[1],
       }
     }
-  })(),
+  }),
 
   basicStats: {
     file: "stats.txt",
