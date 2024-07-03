@@ -43,24 +43,14 @@ export function pickRandom<T>(list: Array<T>): T {
 export function getStream(stream: Stream): Promise<Buffer> {
   return new Promise<Buffer>((fulfill, reject) => {
     const chunks: Buffer[] = []
-    stream.on("data", chunk => chunks.push(chunk))
-    stream.once("end", () => fulfill(concatChunks(chunks)))
+    let totalLength = 0
+    stream.on("data", chunk => {
+      chunks.push(chunk)
+      totalLength += chunk.length
+    })
+    stream.once("end", () => fulfill(Buffer.concat(chunks, totalLength)))
     stream.once("error", reject)
   })
-}
-
-function concatChunks(chunks: Buffer[]) {
-  let size = 0
-  for (const chunk of chunks) {
-    size += chunk.length
-  }
-  const buffer = Buffer.allocUnsafe(size)
-  let index = 0
-  for (const chunk of chunks) {
-    buffer.set(chunk, index)
-    index += chunk.length
-  }
-  return buffer
 }
 
 export function pTimeout<T>(promise: Promise<T>, millis: number): Promise<T> {

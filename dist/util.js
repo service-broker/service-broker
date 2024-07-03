@@ -48,23 +48,14 @@ function pickRandom(list) {
 function getStream(stream) {
     return new Promise((fulfill, reject) => {
         const chunks = [];
-        stream.on("data", chunk => chunks.push(chunk));
-        stream.once("end", () => fulfill(concatChunks(chunks)));
+        let totalLength = 0;
+        stream.on("data", chunk => {
+            chunks.push(chunk);
+            totalLength += chunk.length;
+        });
+        stream.once("end", () => fulfill(Buffer.concat(chunks, totalLength)));
         stream.once("error", reject);
     });
-}
-function concatChunks(chunks) {
-    let size = 0;
-    for (const chunk of chunks) {
-        size += chunk.length;
-    }
-    const buffer = Buffer.allocUnsafe(size);
-    let index = 0;
-    for (const chunk of chunks) {
-        buffer.set(chunk, index);
-        index += chunk.length;
-    }
-    return buffer;
 }
 function pTimeout(promise, millis) {
     let timer;
