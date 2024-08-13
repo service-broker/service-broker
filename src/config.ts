@@ -9,12 +9,15 @@ assert(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENIN
 
 export default {
   listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),
+  listeningHost: process.env.LISTENING_HOST,
+
   ssl: (function() {
     if (process.env.SSL_PORT) {
       assert(process.env.SSL_CERT, "Missing env SSL_CERT")
       assert(process.env.SSL_KEY, "Missing env SSL_KEY")
       return {
         port: Number(process.env.SSL_PORT),
+        host: process.env.SSL_HOST,
         certFile: process.env.SSL_CERT,
         keyFile: process.env.SSL_KEY
       }

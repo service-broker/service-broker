@@ -23,21 +23,22 @@ const app = immediate(() => {
 
 const httpServer = immediate(() => {
   if (config.listeningPort) {
+    const {listeningPort: port, listeningHost: host} = config
     const server = http.createServer(app)
-    server.listen(config.listeningPort, () => console.log(`HTTP listener started on ${config.listeningPort}`))
+    server.listen(port, host, () => console.log(`HTTP listener started on ${host ?? "*"}:${port}`))
     return server
   }
 })
 
 const httpsServer = immediate(() => {
   if (config.ssl) {
-    const {port, certFile, keyFile} = config.ssl
+    const {port, host, certFile, keyFile} = config.ssl
     const readCerts = () => ({
       cert: readFileSync(certFile),
       key: readFileSync(keyFile)
     })
     const server = https.createServer(readCerts(), app)
-    server.listen(port, () => console.log(`HTTPS listener started on ${port}`))
+    server.listen(port, host, () => console.log(`HTTPS listener started on ${host ?? "*"}:${port}`))
     const timer = setInterval(() => server.setSecureContext(readCerts()), 24*3600*1000)
     server.once("close", () => clearInterval(timer))
     return server

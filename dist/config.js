@@ -10,12 +10,14 @@ dotenv_1.default.config();
 (0, assert_1.default)(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 exports.default = {
     listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),
+    listeningHost: process.env.LISTENING_HOST,
     ssl: (function () {
         if (process.env.SSL_PORT) {
             (0, assert_1.default)(process.env.SSL_CERT, "Missing env SSL_CERT");
             (0, assert_1.default)(process.env.SSL_KEY, "Missing env SSL_KEY");
             return {
                 port: Number(process.env.SSL_PORT),
+                host: process.env.SSL_HOST,
                 certFile: process.env.SSL_CERT,
                 keyFile: process.env.SSL_KEY
             };

@@ -27,20 +27,21 @@ const app = (0, util_1.immediate)(() => {
 });
 const httpServer = (0, util_1.immediate)(() => {
     if (config_1.default.listeningPort) {
+        const { listeningPort: port, listeningHost: host } = config_1.default;
         const server = http_1.default.createServer(app);
-        server.listen(config_1.default.listeningPort, () => console.log(`HTTP listener started on ${config_1.default.listeningPort}`));
+        server.listen(port, host, () => console.log(`HTTP listener started on ${host ?? "*"}:${port}`));
         return server;
     }
 });
 const httpsServer = (0, util_1.immediate)(() => {
     if (config_1.default.ssl) {
-        const { port, certFile, keyFile } = config_1.default.ssl;
+        const { port, host, certFile, keyFile } = config_1.default.ssl;
         const readCerts = () => ({
             cert: (0, fs_1.readFileSync)(certFile),
             key: (0, fs_1.readFileSync)(keyFile)
         });
         const server = https_1.default.createServer(readCerts(), app);
-        server.listen(port, () => console.log(`HTTPS listener started on ${port}`));
+        server.listen(port, host, () => console.log(`HTTPS listener started on ${host ?? "*"}:${port}`));
         const timer = setInterval(() => server.setSecureContext(readCerts()), 24 * 3600 * 1000);
         server.once("close", () => clearInterval(timer));
         return server;
