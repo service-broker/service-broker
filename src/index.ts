@@ -206,7 +206,9 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
           }
         })
       }
-      else console.error(String(err), msg.header);
+      else {
+        console.error(ip, endpointId, String(err), msg.header);
+      }
     }
   })
 

@@ -205,8 +205,9 @@ function onConnection(ws, upreq) {
                     }
                 });
             }
-            else
-                console.error(String(err), msg.header);
+            else {
+                console.error(ip, endpointId, String(err), msg.header);
+            }
         }
     });
     ws.on("pong", () => endpoint.isAlive = true);
