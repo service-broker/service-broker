@@ -221,7 +221,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   function handleForward(msg: Message) {
     if (endpoints[msg.header.to]) {
       //if this is a service request, apply rate limit
-      if (msg.header.service) serviceRequestRateLimiter?.apply()
+      if (msg.header.service && !providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
 
       msg.header.from = endpointId;
       endpoints[msg.header.to].send(msg);
@@ -233,7 +233,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
-    serviceRequestRateLimiter?.apply()
+    if (!providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
     basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
 
     msg.header.ip = ip;
