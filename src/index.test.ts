@@ -234,7 +234,7 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"tts", capabilities:["v2", "v3"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:70, error:"No provider tts"},
+            header:{id:70, error:"NO_PROVIDER tts"},
             payload:undefined
         });
 
@@ -244,7 +244,7 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"tts", capabilities:["v1000"]}
         }));
         expect(await receive(c1)).toEqual({
-            header:{id:80, error:"No provider tts"},
+            header:{id:80, error:"NO_PROVIDER tts"},
             payload:undefined
         });
 

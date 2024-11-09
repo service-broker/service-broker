@@ -24,7 +24,7 @@ export default {
     }
   })(),
 
-  adminSecret: process.env.ADMIN_SECRET,
+  providerAuthToken: process.env.PROVIDER_AUTH_TOKEN,
   providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15*1000),
   nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15*60*1000),
 

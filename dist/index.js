@@ -99,7 +99,7 @@ async function onHttpPost(req, res) {
         //send to random provider
         const endpointId = (0, util_1.generateId)();
         let promise = new Promise((fulfill, reject) => {
-            pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+            pending[endpointId] = (res) => res.header.error ? reject(res.header.error) : fulfill(res);
         });
         promise = (0, util_1.pTimeout)(promise, Number(req.query.timeout || 15 * 1000));
         promise = promise.finally(() => delete pending[endpointId]);
@@ -131,7 +131,7 @@ async function onHttpPost(req, res) {
 }
 function getClientIp(req) {
     if (!req.socket.remoteAddress)
-        throw new Error("remoteAddress is null");
+        throw "remoteAddress is null";
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
     return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
@@ -151,17 +151,7 @@ function onConnection(ws, upreq) {
             return {
                 apply() {
                     if (!limiter.tryRemoveTokens(1))
-                        throw new Error("Rate limit exceeded");
-                }
-            };
-        }
-    });
-    const adminSecretValidator = (0, util_1.immediate)(() => {
-        if (config_1.default.adminSecret) {
-            return {
-                apply(msg) {
-                    if (msg.header.adminSecret != config_1.default.adminSecret)
-                        throw new Error("Forbidden");
+                        throw "RATE_LIMIT_EXCEEDED";
                 }
             };
         }
@@ -194,7 +184,7 @@ function onConnection(ws, upreq) {
             else if (msg.header.type == "SbCleanupRequest")
                 handleCleanupRequest(msg);
             else
-                throw new Error("Don't know what to do with message");
+                throw "Don't know what to do with message";
         }
         catch (err) {
             if (msg.header.id) {
@@ -214,8 +204,15 @@ function onConnection(ws, upreq) {
     ws.on("close", function () {
         delete endpoints[endpointId];
         providerRegistry.remove(endpoint);
-        for (const waiter of endpoint.waiters)
-            endpoints[waiter.endpointId]?.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse", endpointId } });
+        for (const waiter of endpoint.waiters) {
+            endpoints[waiter.endpointId]?.send({
+                header: {
+                    id: waiter.responseId,
+                    type: "SbEndpointWaitResponse",
+                    endpointId
+                }
+            });
+        }
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
@@ -228,8 +225,9 @@ function onConnection(ws, upreq) {
         else if (pending[msg.header.to]) {
             pending[msg.header.to](msg);
         }
-        else
-            throw new Error("Destination endpoint not found");
+        else {
+            throw "ENDPOINT_NOT_FOUND";
+        }
     }
     function handleServiceRequest(msg, ip) {
         if (!providerRegistry.endpoints.has(endpoint))
@@ -244,21 +242,31 @@ function onConnection(ws, upreq) {
             else
                 (0, util_1.pickRandom)(providers).endpoint.send(msg);
         }
-        else
-            throw new Error("No provider " + msg.header.service.name);
+        else {
+            throw "NO_PROVIDER " + msg.header.service.name;
+        }
     }
     function handleAdvertiseRequest(msg) {
-        adminSecretValidator?.apply(msg);
+        if (config_1.default.providerAuthToken
+            && msg.header.services?.some((service) => !/^#/.test(service.name))
+            && msg.header.authToken != config_1.default.providerAuthToken) {
+            throw "FORBIDDEN";
+        }
         providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
                 providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
         }
-        if (msg.header.id)
-            endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
+        if (msg.header.id) {
+            endpoint.send({
+                header: {
+                    id: msg.header.id,
+                    type: "SbAdvertiseResponse"
+                }
+            });
+        }
     }
     function handleStatusRequest(msg) {
-        adminSecretValidator?.apply(msg);
         const status = {
             numEndpoints: Object.keys(endpoints).length,
             providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
@@ -270,8 +278,15 @@ function onConnection(ws, upreq) {
                 }))
             }))
         };
-        if (msg.header.id)
-            endpoint.send({ header: { id: msg.header.id, type: "SbStatusResponse" }, payload: JSON.stringify(status) });
+        if (msg.header.id) {
+            endpoint.send({
+                header: {
+                    id: msg.header.id,
+                    type: "SbStatusResponse"
+                },
+                payload: JSON.stringify(status)
+            });
+        }
         else {
             console.log("numEndpoints:", status.numEndpoints);
             for (const entry of status.providerRegistry)
@@ -279,7 +294,6 @@ function onConnection(ws, upreq) {
         }
     }
     function handleEndpointStatusRequest(msg) {
-        adminSecretValidator?.apply(msg);
         endpoint.send({
             header: {
                 id: msg.header.id,
@@ -289,16 +303,14 @@ function onConnection(ws, upreq) {
         });
     }
     function handleEndpointWaitRequest(msg) {
-        adminSecretValidator?.apply(msg);
         const target = endpoints[msg.header.endpointId];
         if (!target)
-            throw new Error("NOT_FOUND");
+            throw "ENDPOINT_NOT_FOUND";
         if (target.waiters.find(x => x.endpointId == endpointId))
-            throw new Error("ALREADY_WAITING");
+            throw "ALREADY_WAITING";
         target.waiters.push({ endpointId, responseId: msg.header.id });
     }
     function handleCleanupRequest(msg) {
-        adminSecretValidator?.apply(msg);
         providerRegistry.cleanup();
     }
 }

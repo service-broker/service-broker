@@ -15,6 +15,6 @@ SSL_CERT | String | | SSL certificate file
 SSL_KEY | String | | SSL private key file
 ALLOWED_ORIGINS | RegExp | /./ | Allowed CORS origins
 TRUST_PROXY | | | ExpressJS trust proxy configuration parameter
-ADMIN_SECRET | String | | Require secret token to perform admin operations
+PROVIDER_AUTH_TOKEN | String | | (Optional) require service providers to authenticate
 PROVIDER_KEEP_ALIVE | Number | 15 seconds | WebSocket ping/pong interval for service providers
 NON_PROVIDER_KEEP_ALIVE | Number | 15 minutes | WebSocket ping/pong interval for clients
