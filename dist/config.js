@@ -39,15 +39,12 @@ exports.default = {
         "application/x-www-form-urlencoded",
     ],
     trustProxy: Number(process.env.TRUST_PROXY || 0),
-    serviceRequestRateLimit: (0, util_1.immediate)(() => {
+    nonProviderRateLimit: (0, util_1.immediate)(() => {
         if (process.env.RATE_LIMIT) {
             (0, assert_1.default)(process.env.TRUST_PROXY, "Missing env TRUST_PROXY");
-            (0, assert_1.default)(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT");
-            const rateLimit = process.env.RATE_LIMIT.split(",").map(Number);
-            return {
-                limit: rateLimit[0],
-                windowMs: rateLimit[1],
-            };
+            (0, assert_1.default)(/^\d+[,/]\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT");
+            const [limit, windowMs] = process.env.RATE_LIMIT.split(/[,/]/).map(Number);
+            return { limit, windowMs };
         }
     }),
     basicStats: {

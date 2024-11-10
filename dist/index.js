@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.providerRegistry = void 0;
+exports.subscriberRegistry = exports.providerRegistry = void 0;
 exports.shutdown = shutdown;
 const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
@@ -16,13 +16,14 @@ const config_1 = __importDefault(require("./config"));
 const endpoint_1 = require("./endpoint");
 const provider_1 = require("./provider");
 const stats_1 = require("./stats");
+const subscriber_1 = require("./subscriber");
 const util_1 = require("./util");
 const app = (0, util_1.immediate)(() => {
     const app = (0, express_1.default)();
     app.set("trust proxy", config_1.default.trustProxy);
     app.get("/", (req, res) => res.end("Healthcheck OK"));
     app.options("/:service", (0, cors_1.default)(config_1.default.corsOptions));
-    app.post("/:service", config_1.default.serviceRequestRateLimit ? (0, express_rate_limit_1.default)(config_1.default.serviceRequestRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
+    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
     return app;
 });
 const httpServer = (0, util_1.immediate)(() => {
@@ -64,6 +65,8 @@ const wssServer = (0, util_1.immediate)(() => {
 const endpoints = {};
 const providerRegistry = new provider_1.ProviderRegistry();
 exports.providerRegistry = providerRegistry;
+const subscriberRegistry = (0, subscriber_1.makeSubscriberRegistry)();
+exports.subscriberRegistry = subscriberRegistry;
 const pending = {};
 const basicStats = new stats_1.Counter();
 async function onHttpPost(req, res) {
@@ -83,17 +86,19 @@ async function onHttpPost(req, res) {
             header.contentType = req.get("content-type");
         //update stats
         basicStats.inc(header.method ? `${service}/${header.method}` : service);
-        //find providers
-        const providers = providerRegistry.find(service, capabilities);
-        if (!providers) {
-            res.status(404).end("No provider " + service);
+        //if topic then broadcast
+        if (isPubSub(service)) {
+            delete header.id;
+            const subscribers = subscriberRegistry.find(service, capabilities);
+            for (const { endpoint } of subscribers)
+                endpoint.send({ header, payload });
+            res.end();
             return;
         }
-        //if topic then broadcast
-        if (service.startsWith("#")) {
-            delete header.id;
-            providers.forEach(x => x.endpoint.send({ header, payload }));
-            res.end();
+        //find providers
+        const providers = providerRegistry.find(service, capabilities);
+        if (!providers.length) {
+            res.status(404).end("No provider " + service);
             return;
         }
         //send to random provider
@@ -138,15 +143,18 @@ function getClientIp(req) {
 function verifyClient(info) {
     return config_1.default.corsOptions.origin.test(info.origin);
 }
+function isPubSub(serviceName) {
+    return /^#/.test(serviceName);
+}
 function onConnection(ws, upreq) {
     const ip = getClientIp(upreq);
     const endpointId = (0, util_1.generateId)();
     const endpoint = endpoints[endpointId] = (0, endpoint_1.makeEndpoint)(endpointId, ws);
-    const serviceRequestRateLimiter = (0, util_1.immediate)(() => {
-        if (config_1.default.serviceRequestRateLimit) {
+    const nonProviderRateLimiter = (0, util_1.immediate)(() => {
+        if (config_1.default.nonProviderRateLimit) {
             const limiter = (0, util_1.makeRateLimiter)({
-                tokensPerInterval: config_1.default.serviceRequestRateLimit.limit,
-                interval: config_1.default.serviceRequestRateLimit.windowMs
+                tokensPerInterval: config_1.default.nonProviderRateLimit.limit,
+                interval: config_1.default.nonProviderRateLimit.windowMs
             });
             return {
                 apply() {
@@ -169,6 +177,8 @@ function onConnection(ws, upreq) {
             return;
         }
         try {
+            if (nonProviderRateLimiter && !providerRegistry.endpoints.has(endpoint))
+                nonProviderRateLimiter.apply();
             if (msg.header.to)
                 handleForward(msg);
             else if (msg.header.service)
@@ -204,6 +214,7 @@ function onConnection(ws, upreq) {
     ws.on("close", function () {
         delete endpoints[endpointId];
         providerRegistry.remove(endpoint);
+        subscriberRegistry.remove(endpoint);
         for (const waiter of endpoint.waiters) {
             endpoints[waiter.endpointId]?.send({
                 header: {
@@ -216,9 +227,6 @@ function onConnection(ws, upreq) {
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
-            //if this is a service request, apply rate limit
-            if (msg.header.service && !providerRegistry.endpoints.has(endpoint))
-                serviceRequestRateLimiter?.apply();
             msg.header.from = endpointId;
             endpoints[msg.header.to].send(msg);
         }
@@ -230,33 +238,32 @@ function onConnection(ws, upreq) {
         }
     }
     function handleServiceRequest(msg, ip) {
-        if (!providerRegistry.endpoints.has(endpoint))
-            serviceRequestRateLimiter?.apply();
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
+        msg.header.from = endpointId;
         msg.header.ip = ip;
-        const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
-        if (providers) {
-            msg.header.from = endpointId;
-            if (msg.header.service.name.startsWith("#"))
-                providers.forEach(x => x.endpoint.send(msg));
-            else
-                (0, util_1.pickRandom)(providers).endpoint.send(msg);
+        if (isPubSub(msg.header.service.name)) {
+            const subscribers = subscriberRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+            for (const { endpoint } of subscribers)
+                endpoint.send(msg);
         }
         else {
-            throw "NO_PROVIDER " + msg.header.service.name;
+            const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+            if (providers.length)
+                (0, util_1.pickRandom)(providers).endpoint.send(msg);
+            else
+                throw "NO_PROVIDER " + msg.header.service.name;
         }
     }
     function handleAdvertiseRequest(msg) {
-        if (config_1.default.providerAuthToken
-            && msg.header.services?.some((service) => !/^#/.test(service.name))
-            && msg.header.authToken != config_1.default.providerAuthToken) {
+        const { services, topics } = parseAdvertisedServices(msg.header.services);
+        if (services.length > 0 && config_1.default.providerAuthToken && msg.header.authToken != config_1.default.providerAuthToken)
             throw "FORBIDDEN";
-        }
         providerRegistry.remove(endpoint);
-        if (msg.header.services) {
-            for (const service of msg.header.services)
-                providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
-        }
+        for (const service of services)
+            providerRegistry.add(endpoint, service.name, service.capabilities, service.priority ?? 0, service.httpHeaders);
+        subscriberRegistry.remove(endpoint);
+        for (const topic of topics)
+            subscriberRegistry.add(endpoint, topic.name, topic.capabilities);
         if (msg.header.id) {
             endpoint.send({
                 header: {
@@ -265,6 +272,29 @@ function onConnection(ws, upreq) {
                 }
             });
         }
+    }
+    function parseAdvertisedServices(items) {
+        const services = [];
+        const topics = [];
+        if (!Array.isArray(items))
+            throw "BAD_REQUEST";
+        for (const { name, capabilities, priority, httpHeaders } of items) {
+            if (typeof name != "string")
+                throw "BAD_REQUEST";
+            if (typeof capabilities != "undefined" && !Array.isArray(capabilities))
+                throw "BAD_REQUEST";
+            if (isPubSub(name)) {
+                topics.push({ name, capabilities });
+            }
+            else {
+                if (typeof priority != "undefined" && typeof priority != "number")
+                    throw "BAD_REQUEST";
+                if (typeof httpHeaders != "undefined" && !Array.isArray(httpHeaders))
+                    throw "BAD_REQUEST";
+                services.push({ name, capabilities, priority, httpHeaders });
+            }
+        }
+        return { services, topics };
     }
     function handleStatusRequest(msg) {
         const status = {
@@ -276,7 +306,8 @@ function onConnection(ws, upreq) {
                     capabilities: provider.capabilities && Array.from(provider.capabilities),
                     priority: provider.priority
                 }))
-            }))
+            })),
+            subscriberRegistry: subscriberRegistry.status(),
         };
         if (msg.header.id) {
             endpoint.send({
@@ -291,6 +322,8 @@ function onConnection(ws, upreq) {
             console.log("numEndpoints:", status.numEndpoints);
             for (const entry of status.providerRegistry)
                 console.log(entry.service, entry.providers);
+            for (const entry of status.subscriberRegistry)
+                console.log(entry.topic, entry.subscribers);
         }
     }
     function handleEndpointStatusRequest(msg) {

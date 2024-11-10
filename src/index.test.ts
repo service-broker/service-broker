@@ -3,7 +3,7 @@ import assert from "assert";
 import { Readable } from 'stream';
 import WebSocket from 'ws';
 import config from './config';
-import { providerRegistry, shutdown } from "./index";
+import { providerRegistry, shutdown, subscriberRegistry } from "./index";
 import { describe, expect, runAll } from "./test-utils";
 import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
 
@@ -133,9 +133,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
         expect(providerRegistry.registry["tts"]).toHaveLength(2);
         expect(providerRegistry.registry["tts"].map((x: any) => x.priority)).toEqual([6,3]);
         expect(providerRegistry.registry["transcode"]).toHaveLength(2);
-        expect(providerRegistry.registry["transcode"].map((x: any) => x.priority)).toEqual([10, undefined]);
-        expect(providerRegistry.registry["#log"]).toHaveLength(2);
-        expect(providerRegistry.registry["#log"].map((x: any) => x.priority)).toEqual([undefined, undefined]);
+        expect(providerRegistry.registry["transcode"].map((x: any) => x.priority)).toEqual([10,0]);
+        expect(subscriberRegistry.debug.registry.get("#log")?.size).toBe(2);
     }
 
     test("bad request", async () => {

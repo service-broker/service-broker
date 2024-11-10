@@ -9,6 +9,7 @@ import config from "./config";
 import { Endpoint, Message, makeEndpoint } from "./endpoint";
 import { ProviderRegistry } from "./provider";
 import { Counter } from "./stats";
+import { makeSubscriberRegistry } from "./subscriber";
 import { generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
 
 
@@ -17,7 +18,7 @@ const app = immediate(() => {
   app.set("trust proxy", config.trustProxy);
   app.get("/", (req, res) => res.end("Healthcheck OK"));
   app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
-  app.post("/:service", config.serviceRequestRateLimit ? expressRateLimit(config.serviceRequestRateLimit) : [], cors(config.corsOptions), onHttpPost);
+  app.post("/:service", config.nonProviderRateLimit ? expressRateLimit(config.nonProviderRateLimit) : [], cors(config.corsOptions), onHttpPost);
   return app
 })
 
@@ -63,6 +64,7 @@ const wssServer = immediate(() => {
 
 const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
+const subscriberRegistry = makeSubscriberRegistry()
 const pending: {[key: string]: (res: Message) => void} = {};
 const basicStats = new Counter()
 
@@ -88,18 +90,19 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     //update stats
     basicStats.inc(header.method ? `${service}/${header.method}` : service);
 
-    //find providers
-    const providers = providerRegistry.find(service, capabilities);
-    if (!providers) {
-      res.status(404).end("No provider " + service);
+    //if topic then broadcast
+    if (isPubSub(service)) {
+      delete header.id;
+      const subscribers = subscriberRegistry.find(service, capabilities)
+      for (const {endpoint} of subscribers) endpoint.send({header, payload})
+      res.end();
       return;
     }
 
-    //if topic then broadcast
-    if (service.startsWith("#")) {
-      delete header.id;
-      providers.forEach(x => x.endpoint.send({header, payload}));
-      res.end();
+    //find providers
+    const providers = providerRegistry.find(service, capabilities);
+    if (!providers.length) {
+      res.status(404).end("No provider " + service);
       return;
     }
 
@@ -148,16 +151,20 @@ function verifyClient(info: {origin: string}) {
   return (<RegExp>config.corsOptions.origin).test(info.origin);
 }
 
+function isPubSub(serviceName: string) {
+  return /^#/.test(serviceName)
+}
+
 function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const ip = getClientIp(upreq);
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = makeEndpoint(endpointId, ws)
 
-  const serviceRequestRateLimiter = immediate(() => {
-    if (config.serviceRequestRateLimit) {
+  const nonProviderRateLimiter = immediate(() => {
+    if (config.nonProviderRateLimit) {
       const limiter = makeRateLimiter({
-        tokensPerInterval: config.serviceRequestRateLimit.limit,
-        interval: config.serviceRequestRateLimit.windowMs
+        tokensPerInterval: config.nonProviderRateLimit.limit,
+        interval: config.nonProviderRateLimit.windowMs
       })
       return {
         apply() {
@@ -178,6 +185,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       return;
     }
     try {
+      if (nonProviderRateLimiter && !providerRegistry.endpoints.has(endpoint)) nonProviderRateLimiter.apply()
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg, ip)
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
@@ -207,6 +215,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   ws.on("close", function() {
     delete endpoints[endpointId];
     providerRegistry.remove(endpoint);
+    subscriberRegistry.remove(endpoint)
     for (const waiter of endpoint.waiters) {
       endpoints[waiter.endpointId]?.send({
         header: {
@@ -220,9 +229,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
 
   function handleForward(msg: Message) {
     if (endpoints[msg.header.to]) {
-      //if this is a service request, apply rate limit
-      if (msg.header.service && !providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
-
       msg.header.from = endpointId;
       endpoints[msg.header.to].send(msg);
     }
@@ -235,33 +241,31 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
-    if (!providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
     basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
-
+    msg.header.from = endpointId;
     msg.header.ip = ip;
-    const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
-    if (providers) {
-      msg.header.from = endpointId;
-      if (msg.header.service.name.startsWith("#")) providers.forEach(x => x.endpoint.send(msg));
-      else pickRandom(providers).endpoint.send(msg);
-    }
-    else {
-      throw "NO_PROVIDER " + msg.header.service.name
+    if (isPubSub(msg.header.service.name)) {
+      const subscribers = subscriberRegistry.find(msg.header.service.name, msg.header.service.capabilities)
+      for (const {endpoint} of subscribers) endpoint.send(msg)
+    } else {
+      const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+      if (providers.length) pickRandom(providers).endpoint.send(msg)
+      else throw "NO_PROVIDER " + msg.header.service.name
     }
   }
 
   function handleAdvertiseRequest(msg: Message) {
-    if (config.providerAuthToken
-      && msg.header.services?.some((service: any) => !/^#/.test(service.name))
-      && msg.header.authToken != config.providerAuthToken
-    ) {
-      throw "FORBIDDEN"
-    }
+    const {services, topics} = parseAdvertisedServices(msg.header.services)
+    if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken) throw "FORBIDDEN"
+
     providerRegistry.remove(endpoint);
-    if (msg.header.services) {
-      for (const service of msg.header.services)
-        providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders)
-    }
+    for (const service of services)
+      providerRegistry.add(endpoint, service.name, service.capabilities, service.priority ?? 0, service.httpHeaders)
+
+    subscriberRegistry.remove(endpoint)
+    for (const topic of topics)
+      subscriberRegistry.add(endpoint, topic.name, topic.capabilities)
+
     if (msg.header.id) {
       endpoint.send({
         header: {
@@ -270,6 +274,42 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
         }
       })
     }
+  }
+
+  function parseAdvertisedServices(
+    items: Array<{
+      name: unknown
+      capabilities: unknown
+      priority: unknown
+      httpHeaders: unknown
+    }>
+  ) {
+    interface Service {
+      name: string
+      capabilities?: string[]
+      priority?: number
+      httpHeaders?: string[]
+    }
+    interface Topic {
+      name: string
+      capabilities?: string[]
+    }
+    const services: Service[] = []
+    const topics: Topic[] = []
+
+    if (!Array.isArray(items)) throw "BAD_REQUEST"
+    for (const {name, capabilities, priority, httpHeaders} of items) {
+      if (typeof name != "string") throw "BAD_REQUEST"
+      if (typeof capabilities != "undefined" && !Array.isArray(capabilities)) throw "BAD_REQUEST"
+      if (isPubSub(name)) {
+        topics.push({name, capabilities})
+      } else {
+        if (typeof priority != "undefined" && typeof priority != "number") throw "BAD_REQUEST"
+        if (typeof httpHeaders != "undefined" && !Array.isArray(httpHeaders)) throw "BAD_REQUEST"
+        services.push({name, capabilities, priority, httpHeaders})
+      }
+    }
+    return {services, topics}
   }
 
   function handleStatusRequest(msg: Message) {
@@ -282,7 +322,8 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
           capabilities: provider.capabilities && Array.from(provider.capabilities),
           priority: provider.priority
         }))
-      }))
+      })),
+      subscriberRegistry: subscriberRegistry.status(),
     }
     if (msg.header.id) {
       endpoint.send({
@@ -297,6 +338,8 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       console.log("numEndpoints:", status.numEndpoints);
       for (const entry of status.providerRegistry)
         console.log(entry.service, entry.providers);
+      for (const entry of status.subscriberRegistry)
+        console.log(entry.topic, entry.subscribers)
     }
   }
 
@@ -353,6 +396,5 @@ function shutdown() {
 
 //for testing
 export {
-  providerRegistry,
-  shutdown
-}
+  providerRegistry, shutdown, subscriberRegistry
+};
