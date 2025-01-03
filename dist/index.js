@@ -21,9 +21,9 @@ const util_1 = require("./util");
 const app = (0, util_1.immediate)(() => {
     const app = (0, express_1.default)();
     app.set("trust proxy", config_1.default.trustProxy);
+    app.use((0, cors_1.default)(config_1.default.corsOptions));
     app.get("/", (req, res) => res.end("Healthcheck OK"));
-    app.options("/:service", (0, cors_1.default)(config_1.default.corsOptions));
-    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
+    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], onHttpPost);
     return app;
 });
 const httpServer = (0, util_1.immediate)(() => {

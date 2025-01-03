@@ -16,9 +16,9 @@ import { generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, m
 const app = immediate(() => {
   const app = express()
   app.set("trust proxy", config.trustProxy);
+  app.use(cors(config.corsOptions))
   app.get("/", (req, res) => res.end("Healthcheck OK"));
-  app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
-  app.post("/:service", config.nonProviderRateLimit ? expressRateLimit(config.nonProviderRateLimit) : [], cors(config.corsOptions), onHttpPost);
+  app.post("/:service", config.nonProviderRateLimit ? expressRateLimit(config.nonProviderRateLimit) : [], onHttpPost);
   return app
 })
 
