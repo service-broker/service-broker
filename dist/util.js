@@ -1,17 +1,7 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.immediate = immediate;
-exports.messageFromString = messageFromString;
-exports.messageFromBuffer = messageFromBuffer;
-exports.pickRandom = pickRandom;
-exports.getStream = getStream;
-exports.pTimeout = pTimeout;
-exports.generateId = generateId;
-exports.makeRateLimiter = makeRateLimiter;
-function immediate(func) {
+export function immediate(func) {
     return func();
 }
-function messageFromString(str) {
+export function messageFromString(str) {
     if (str[0] != '{')
         throw new Error("Message doesn't have JSON header");
     const index = str.indexOf('\n');
@@ -26,7 +16,7 @@ function messageFromString(str) {
     }
     return { header, payload };
 }
-function messageFromBuffer(buf) {
+export function messageFromBuffer(buf) {
     if (buf[0] != 123)
         throw new Error("Message doesn't have JSON header");
     const index = buf.indexOf('\n');
@@ -41,11 +31,11 @@ function messageFromBuffer(buf) {
     }
     return { header, payload };
 }
-function pickRandom(list) {
+export function pickRandom(list) {
     const randomIndex = Math.floor(Math.random() * list.length);
     return list[randomIndex];
 }
-function getStream(stream) {
+export function getStream(stream) {
     return new Promise((fulfill, reject) => {
         const chunks = [];
         let totalLength = 0;
@@ -57,7 +47,7 @@ function getStream(stream) {
         stream.once("error", reject);
     });
 }
-function pTimeout(promise, millis) {
+export function pTimeout(promise, millis) {
     let timer;
     return Promise.race([
         promise
@@ -66,10 +56,10 @@ function pTimeout(promise, millis) {
             .then(() => Promise.reject(new Error("Timeout")))
     ]);
 }
-function generateId() {
+export function generateId() {
     return Math.random().toString(36).slice(2);
 }
-function makeRateLimiter({ tokensPerInterval, interval }) {
+export function makeRateLimiter({ tokensPerInterval, interval }) {
     let avail = 0, expire = 0;
     return {
         tryRemoveTokens(count) {
@@ -87,4 +77,18 @@ function makeRateLimiter({ tokensPerInterval, interval }) {
             }
         }
     };
+}
+export class StatsCounter {
+    constructor() {
+        this.map = {};
+    }
+    inc(name) {
+        this.map[name] = (this.map[name] || 0) + 1;
+    }
+    clear() {
+        this.map = {};
+    }
+    toJson() {
+        return JSON.stringify(this.map);
+    }
 }

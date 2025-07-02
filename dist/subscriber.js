@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.makeSubscriberRegistry = makeSubscriberRegistry;
-function makeSubscriberRegistry() {
+export function makeSubscriberRegistry() {
     const registry = new Map();
     return {
         add(endpoint, name, capabilities) {

@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ProviderRegistry = void 0;
-class ProviderRegistry {
+export class ProviderRegistry {
     constructor() {
         this.registry = {};
         this.endpoints = new Set();
@@ -46,4 +43,3 @@ class ProviderRegistry {
                 delete this.registry[name];
     }
 }
-exports.ProviderRegistry = ProviderRegistry;

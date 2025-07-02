@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.makeEndpoint = makeEndpoint;
-function makeEndpoint(id, ws) {
+export function makeEndpoint(id, ws) {
     return {
         id,
         isAlive: true,

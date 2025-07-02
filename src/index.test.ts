@@ -2,10 +2,10 @@
 import assert from "assert";
 import { Readable } from 'stream';
 import WebSocket from 'ws';
-import config from './config';
-import { providerRegistry, shutdown, subscriberRegistry } from "./index";
-import { describe, expect, runAll } from "./test-utils";
-import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
+import config from './config.js';
+import { providerRegistry, shutdown, subscriberRegistry } from "./index.js";
+import { describe, expect, runAll } from "./test-utils.js";
+import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 
 function expectMessage(a: any, b: {header: Record<string, unknown>, payload: unknown}) {
     assert(typeof a == "object" && a)

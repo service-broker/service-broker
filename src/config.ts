@@ -1,7 +1,7 @@
 import assert from "assert";
 import { CorsOptions } from "cors";
 import dotenv from "dotenv";
-import { immediate } from "./util";
+import { immediate } from "./util.js";
 
 dotenv.config();
 
@@ -11,7 +11,7 @@ export default {
   listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),
   listeningHost: process.env.LISTENING_HOST,
 
-  ssl: (function() {
+  ssl: immediate(() => {
     if (process.env.SSL_PORT) {
       assert(process.env.SSL_CERT, "Missing env SSL_CERT")
       assert(process.env.SSL_KEY, "Missing env SSL_KEY")
@@ -22,7 +22,7 @@ export default {
         keyFile: process.env.SSL_KEY
       }
     }
-  })(),
+  }),
 
   providerAuthToken: process.env.PROVIDER_AUTH_TOKEN,
   providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15*1000),

@@ -5,12 +5,11 @@ import { appendFile, readFileSync } from "fs";
 import http from "http";
 import https from "https";
 import WebSocket, { WebSocketServer } from 'ws';
-import config from "./config";
-import { Endpoint, Message, makeEndpoint } from "./endpoint";
-import { ProviderRegistry } from "./provider";
-import { Counter } from "./stats";
-import { makeSubscriberRegistry } from "./subscriber";
-import { generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util";
+import config from "./config.js";
+import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
+import { ProviderRegistry } from "./provider.js";
+import { makeSubscriberRegistry } from "./subscriber.js";
+import { StatsCounter, generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 
 
 const app = immediate(() => {
@@ -66,7 +65,7 @@ const endpoints: {[key: string]: Endpoint} = {};
 const providerRegistry = new ProviderRegistry();
 const subscriberRegistry = makeSubscriberRegistry()
 const pending: {[key: string]: (res: Message) => void} = {};
-const basicStats = new Counter()
+const basicStats = new StatsCounter()
 
 
 

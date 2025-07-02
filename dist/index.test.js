@@ -1,71 +1,66 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const assert_1 = __importDefault(require("assert"));
-const stream_1 = require("stream");
-const ws_1 = __importDefault(require("ws"));
-const config_1 = __importDefault(require("./config"));
-const index_1 = require("./index");
-const test_utils_1 = require("./test-utils");
-const util_1 = require("./util");
+import assert from "assert";
+import { Readable } from 'stream';
+import WebSocket from 'ws';
+import config from './config.js';
+import { providerRegistry, shutdown, subscriberRegistry } from "./index.js";
+import { describe, expect, runAll } from "./test-utils.js";
+import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 function expectMessage(a, b) {
-    (0, assert_1.default)(typeof a == "object" && a);
-    (0, assert_1.default)(typeof a.header == "object" && a.header);
-    (0, assert_1.default)(typeof a.header.from == "string");
-    (0, assert_1.default)(a.header.ip == "::1" || a.header.ip == "127.0.0.1");
+    assert(typeof a == "object" && a);
+    assert(typeof a.header == "object" && a.header);
+    assert(typeof a.header.from == "string");
+    assert(a.header.ip == "::1" || a.header.ip == "127.0.0.1");
     for (const p in b.header)
-        (0, test_utils_1.expect)(a.header[p]).toEqual(b.header[p]);
-    (0, test_utils_1.expect)(a.payload).toEqual(b.payload);
+        expect(a.header[p]).toEqual(b.header[p]);
+    expect(a.payload).toEqual(b.payload);
 }
-(0, test_utils_1.describe)("test helper functions", ({ test }) => {
+describe("test helper functions", ({ test }) => {
     test("pickRandom", () => {
         const list = [1, 2, 3, 4, 5, 6, 7];
         for (let i = 0; i < 100; i++)
-            (0, test_utils_1.expect)(list.indexOf((0, util_1.pickRandom)(list))).not.toBe(-1);
+            expect(list.indexOf(pickRandom(list))).not.toBe(-1);
     });
     test("messageFromString", () => {
-        (0, test_utils_1.expect)(() => (0, util_1.messageFromString)('bad')).toThrow("Message doesn't have JSON header");
-        (0, test_utils_1.expect)(() => (0, util_1.messageFromString)('{bad}\nCrap')).toThrow("Failed to parse message header");
-        (0, test_utils_1.expect)((0, util_1.messageFromString)('{"a":1}')).toEqual({ header: { a: 1 }, payload: undefined });
-        (0, test_utils_1.expect)((0, util_1.messageFromString)('{"a":1}\n')).toEqual({ header: { a: 1 }, payload: "" });
-        (0, test_utils_1.expect)((0, util_1.messageFromString)('{"a":1}\nCrap')).toEqual({ header: { a: 1 }, payload: "Crap" });
+        expect(() => messageFromString('bad')).toThrow("Message doesn't have JSON header");
+        expect(() => messageFromString('{bad}\nCrap')).toThrow("Failed to parse message header");
+        expect(messageFromString('{"a":1}')).toEqual({ header: { a: 1 }, payload: undefined });
+        expect(messageFromString('{"a":1}\n')).toEqual({ header: { a: 1 }, payload: "" });
+        expect(messageFromString('{"a":1}\nCrap')).toEqual({ header: { a: 1 }, payload: "Crap" });
     });
     test("messageFromBuffer", () => {
-        (0, test_utils_1.expect)(() => (0, util_1.messageFromBuffer)(Buffer.from('bad'))).toThrow("Message doesn't have JSON header");
-        (0, test_utils_1.expect)(() => (0, util_1.messageFromBuffer)(Buffer.from('{bad}\nCrap'))).toThrow("Failed to parse message header");
-        (0, test_utils_1.expect)((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}'))).toEqual({ header: { a: 1 }, payload: undefined });
-        (0, test_utils_1.expect)((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}\n'))).toEqual({ header: { a: 1 }, payload: Buffer.from("") });
-        (0, test_utils_1.expect)((0, util_1.messageFromBuffer)(Buffer.from('{"a":1}\nCrap'))).toEqual({ header: { a: 1 }, payload: Buffer.from("Crap") });
+        expect(() => messageFromBuffer(Buffer.from('bad'))).toThrow("Message doesn't have JSON header");
+        expect(() => messageFromBuffer(Buffer.from('{bad}\nCrap'))).toThrow("Failed to parse message header");
+        expect(messageFromBuffer(Buffer.from('{"a":1}'))).toEqual({ header: { a: 1 }, payload: undefined });
+        expect(messageFromBuffer(Buffer.from('{"a":1}\n'))).toEqual({ header: { a: 1 }, payload: Buffer.from("") });
+        expect(messageFromBuffer(Buffer.from('{"a":1}\nCrap'))).toEqual({ header: { a: 1 }, payload: Buffer.from("Crap") });
     });
     test("getStream", async () => {
-        const readable = new stream_1.Readable();
+        const readable = new Readable();
         readable._read = () => { };
-        const promise = (0, util_1.getStream)(readable).then(x => x.toString());
+        const promise = getStream(readable).then(x => x.toString());
         readable.push("Hello, ");
         await new Promise(f => setTimeout(f, 100));
         readable.push("world");
         readable.push(null);
-        (0, test_utils_1.expect)(await promise).toBe("Hello, world");
+        expect(await promise).toBe("Hello, world");
     });
     test("pTimeout success", async () => {
-        const promise = (0, util_1.pTimeout)(new Promise(f => setTimeout(() => f("Success"), 100)), 200);
-        (0, test_utils_1.expect)(await promise).toBe("Success");
+        const promise = pTimeout(new Promise(f => setTimeout(() => f("Success"), 100)), 200);
+        expect(await promise).toBe("Success");
     });
     test("pTimeout timeout", async () => {
-        const promise = (0, util_1.pTimeout)(new Promise(f => setTimeout(f, 200)), 100);
-        (0, test_utils_1.expect)(promise).rejects("Timeout");
+        const promise = pTimeout(new Promise(f => setTimeout(f, 200)), 100);
+        expect(promise).rejects("Timeout");
     });
 });
-(0, test_utils_1.describe)("test service provider", ({ beforeEach, afterEach, test }) => {
+describe("test service provider", ({ beforeEach, afterEach, test }) => {
     let p1;
     let p2;
     let c1;
     beforeEach(async () => {
-        p1 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
-        p2 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
-        c1 = new ws_1.default(`ws://localhost:${config_1.default.listeningPort}`);
+        p1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
+        p2 = new WebSocket(`ws://localhost:${config.listeningPort}`);
+        c1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
         await Promise.all([
             new Promise(fulfill => p1.once("open", fulfill)),
             new Promise(fulfill => p2.once("open", fulfill)),
@@ -86,9 +81,9 @@ function expectMessage(a, b) {
         return new Promise(fulfill => {
             ws.once("message", (data, isBinary) => {
                 if (isBinary)
-                    fulfill((0, util_1.messageFromBuffer)(data));
+                    fulfill(messageFromBuffer(data));
                 else
-                    fulfill((0, util_1.messageFromString)(data.toString()));
+                    fulfill(messageFromString(data.toString()));
             });
         });
     }
@@ -103,7 +98,7 @@ function expectMessage(a, b) {
                 { name: "#log", capabilities: ["err", "warn", "info"] }
             ]
         }));
-        (0, test_utils_1.expect)(await receive(p1)).toEqual({
+        expect(await receive(p1)).toEqual({
             header: { id: 2, type: "SbAdvertiseResponse" },
             payload: undefined
         });
@@ -117,20 +112,20 @@ function expectMessage(a, b) {
                 { name: "#log", capabilities: ["err"] }
             ]
         }));
-        (0, test_utils_1.expect)(await receive(p2)).toEqual({
+        expect(await receive(p2)).toEqual({
             header: { id: 3, type: "SbAdvertiseResponse" },
             payload: undefined
         });
         //verify providers registry is correct
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["tts"]).toHaveLength(2);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["tts"].map((x) => x.priority)).toEqual([6, 3]);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["transcode"]).toHaveLength(2);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["transcode"].map((x) => x.priority)).toEqual([10, 0]);
-        (0, test_utils_1.expect)(index_1.subscriberRegistry.debug.registry.get("#log")?.size).toBe(2);
+        expect(providerRegistry.registry["tts"]).toHaveLength(2);
+        expect(providerRegistry.registry["tts"].map((x) => x.priority)).toEqual([6, 3]);
+        expect(providerRegistry.registry["transcode"]).toHaveLength(2);
+        expect(providerRegistry.registry["transcode"].map((x) => x.priority)).toEqual([10, 0]);
+        expect(subscriberRegistry.debug.registry.get("#log")?.size).toBe(2);
     }
     test("bad request", async () => {
         p1.send(JSON.stringify({ id: 1, type: "UnknownRequest" }));
-        (0, test_utils_1.expect)(await receive(p1)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
+        expect(await receive(p1)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
     });
     test("request success", async () => {
         await providersAdvertise();
@@ -214,7 +209,7 @@ function expectMessage(a, b) {
             id: 70,
             service: { name: "tts", capabilities: ["v2", "v3"] }
         }));
-        (0, test_utils_1.expect)(await receive(c1)).toEqual({
+        expect(await receive(c1)).toEqual({
             header: { id: 70, error: "NO_PROVIDER tts" },
             payload: undefined
         });
@@ -223,17 +218,17 @@ function expectMessage(a, b) {
             id: 80,
             service: { name: "tts", capabilities: ["v1000"] }
         }));
-        (0, test_utils_1.expect)(await receive(c1)).toEqual({
+        expect(await receive(c1)).toEqual({
             header: { id: 80, error: "NO_PROVIDER tts" },
             payload: undefined
         });
         //check no more messages pending
         p1.send(JSON.stringify({ id: 1, type: "UnknownRequest" }));
-        (0, test_utils_1.expect)(await receive(p1)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
+        expect(await receive(p1)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
         p2.send(JSON.stringify({ id: 1, type: "UnknownRequest" }));
-        (0, test_utils_1.expect)(await receive(p2)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
+        expect(await receive(p2)).toEqual({ header: { id: 1, error: "Don't know what to do with message" }, payload: undefined });
     });
 });
-(0, test_utils_1.runAll)()
+runAll()
     .catch(console.error)
-    .finally(index_1.shutdown);
+    .finally(shutdown);

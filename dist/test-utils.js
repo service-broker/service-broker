@@ -1,15 +1,6 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.describe = describe;
-exports.runAll = runAll;
-exports.expect = expect;
-exports.mockFunc = mockFunc;
-const strict_1 = __importDefault(require("assert/strict"));
+import assert from "assert/strict";
 const suites = [];
-function describe(suite, setup) {
+export function describe(suite, setup) {
     const before = [];
     const after = [];
     const tests = [];
@@ -33,59 +24,59 @@ function describe(suite, setup) {
         }
     });
 }
-async function runAll() {
+export async function runAll() {
     for (const run of suites)
         await run();
 }
-function expect(a) {
+export function expect(a) {
     return {
         toBe(b) {
-            strict_1.default.strictEqual(a, b);
+            assert.strictEqual(a, b);
         },
         toEqual(b) {
-            strict_1.default.deepStrictEqual(a, b);
+            assert.deepStrictEqual(a, b);
         },
         toHaveLength(b) {
-            (0, strict_1.default)(Array.isArray(a));
-            strict_1.default.strictEqual(a.length, b);
+            assert(Array.isArray(a));
+            assert.strictEqual(a.length, b);
         },
         not: {
             toBe(b) {
-                strict_1.default.notStrictEqual(a, b);
+                assert.notStrictEqual(a, b);
             },
             toEquals(b) {
-                strict_1.default.notDeepStrictEqual(a, b);
+                assert.notDeepStrictEqual(a, b);
             }
         },
         toThrow(b) {
-            (0, strict_1.default)(typeof a == "function");
+            assert(typeof a == "function");
             if (typeof b == "string") {
-                strict_1.default.throws(a, err => {
-                    (0, strict_1.default)(err instanceof Error);
-                    strict_1.default.strictEqual(b, err.message);
+                assert.throws(a, err => {
+                    assert(err instanceof Error);
+                    assert.strictEqual(b, err.message);
                     return true;
                 });
             }
             else {
-                strict_1.default.throws(a, b);
+                assert.throws(a, b);
             }
         },
         async rejects(b) {
-            (0, strict_1.default)(a instanceof Promise);
+            assert(a instanceof Promise);
             if (typeof b == "string") {
-                await strict_1.default.rejects(a, err => {
-                    (0, strict_1.default)(err instanceof Error);
-                    strict_1.default.strictEqual(b, err.message);
+                await assert.rejects(a, err => {
+                    assert(err instanceof Error);
+                    assert.strictEqual(b, err.message);
                     return true;
                 });
             }
             else {
-                await strict_1.default.rejects(a, b);
+                await assert.rejects(a, b);
             }
         }
     };
 }
-function mockFunc() {
+export function mockFunc() {
     const func = function () {
         func.mock.calls.push(Array.from(arguments));
     };
