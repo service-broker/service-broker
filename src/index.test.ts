@@ -3,7 +3,9 @@ import assert from "assert";
 import { Readable } from 'stream';
 import WebSocket from 'ws';
 import config from './config.js';
-import { providerRegistry, shutdown, subscriberRegistry } from "./index.js";
+import { shutdown } from "./index.js";
+import { debug as providerDebug } from "./provider.js";
+import { debug as subscriberDebug } from "./subscriber.js";
 import { describe, expect, runAll } from "./test-utils.js";
 import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 
@@ -130,11 +132,11 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
         });
 
         //verify providers registry is correct
-        expect(providerRegistry.registry["tts"]).toHaveLength(2);
-        expect(providerRegistry.registry["tts"].map((x: any) => x.priority)).toEqual([6,3]);
-        expect(providerRegistry.registry["transcode"]).toHaveLength(2);
-        expect(providerRegistry.registry["transcode"].map((x: any) => x.priority)).toEqual([10,0]);
-        expect(subscriberRegistry.debug.registry.get("#log")?.size).toBe(2);
+        expect(providerDebug.registry.get("tts")).toHaveLength(2)
+        expect(providerDebug.registry.get("tts")?.map(x => x.priority)).toEqual([6,3])
+        expect(providerDebug.registry.get("transcode")).toHaveLength(2)
+        expect(providerDebug.registry.get("transcode")?.map(x => x.priority)).toEqual([10,0])
+        expect(subscriberDebug.registry.get("#log")?.size).toBe(2)
     }
 
     test("bad request", async () => {

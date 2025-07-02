@@ -7,8 +7,8 @@ import https from "https";
 import WebSocket, { WebSocketServer } from 'ws';
 import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
-import { ProviderRegistry } from "./provider.js";
-import { makeSubscriberRegistry } from "./subscriber.js";
+import * as providerRegistry from "./provider.js";
+import * as subscriberRegistry from "./subscriber.js";
 import { StatsCounter, generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 
 
@@ -61,10 +61,8 @@ const wssServer = immediate(() => {
   }
 })
 
-const endpoints: {[key: string]: Endpoint} = {};
-const providerRegistry = new ProviderRegistry();
-const subscriberRegistry = makeSubscriberRegistry()
-const pending: {[key: string]: (res: Message) => void} = {};
+const endpoints = new Map<string, Endpoint>()
+const pendingResponse = new Map<string, (res: Message) => void>()
 const basicStats = new StatsCounter()
 
 
@@ -108,10 +106,10 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     //send to random provider
     const endpointId = generateId();
     let promise = new Promise<Message>((fulfill, reject) => {
-      pending[endpointId] = (res) => res.header.error ? reject(res.header.error) : fulfill(res);
+      pendingResponse.set(endpointId, res => res.header.error ? reject(res.header.error) : fulfill(res))
     })
     promise = pTimeout(promise, Number(req.query.timeout || 15*1000));
-    promise = promise.finally(() => delete pending[endpointId]);
+    promise = promise.finally(() => pendingResponse.delete(endpointId))
 
     header.from = endpointId;
     if (!header.id) header.id = endpointId;
@@ -161,7 +159,8 @@ function isPubSub(serviceName: string) {
 function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const ip = getClientIp(upreq);
   const endpointId = generateId();
-  const endpoint = endpoints[endpointId] = makeEndpoint(endpointId, ws)
+  const endpoint = makeEndpoint(endpointId, ws)
+  endpoints.set(endpointId, endpoint)
 
   const nonProviderRateLimiter = immediate(() => {
     if (config.nonProviderRateLimit) {
@@ -188,7 +187,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       return;
     }
     try {
-      if (nonProviderRateLimiter && !providerRegistry.endpoints.has(endpoint)) nonProviderRateLimiter.apply()
+      if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) nonProviderRateLimiter.apply()
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg, ip)
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
@@ -216,11 +215,11 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   ws.on("pong", () => endpoint.isAlive = true);
 
   ws.on("close", function() {
-    delete endpoints[endpointId];
+    endpoints.delete(endpointId)
     providerRegistry.remove(endpoint);
     subscriberRegistry.remove(endpoint)
     for (const waiter of endpoint.waiters) {
-      endpoints[waiter.endpointId]?.send({
+      endpoints.get(waiter.endpointId)?.send({
         header: {
           id: waiter.responseId,
           type: "SbEndpointWaitResponse",
@@ -231,16 +230,18 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   })
 
   function handleForward(msg: Message) {
-    if (endpoints[msg.header.to]) {
+    const endpoint = endpoints.get(msg.header.to)
+    if (endpoint) {
       msg.header.from = endpointId;
-      endpoints[msg.header.to].send(msg);
+      endpoint.send(msg)
+      return
     }
-    else if (pending[msg.header.to]) {
-      pending[msg.header.to](msg);
+    const pending = pendingResponse.get(msg.header.to)
+    if (pending) {
+      pending(msg)
+      return
     }
-    else {
-      throw "ENDPOINT_NOT_FOUND"
-    }
+    throw "ENDPOINT_NOT_FOUND"
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
@@ -317,15 +318,8 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
 
   function handleStatusRequest(msg: Message) {
     const status = {
-      numEndpoints: Object.keys(endpoints).length,
-      providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
-        service: name,
-        providers: providerRegistry.registry[name].map(provider => ({
-          endpointId: provider.endpoint.id,
-          capabilities: provider.capabilities && Array.from(provider.capabilities),
-          priority: provider.priority
-        }))
-      })),
+      numEndpoints: endpoints.size,
+      providerRegistry: providerRegistry.status(),
       subscriberRegistry: subscriberRegistry.status(),
     }
     if (msg.header.id) {
@@ -351,13 +345,13 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       header: {
         id: msg.header.id,
         type: "SbEndpointStatusResponse",
-        endpointStatuses: msg.header.endpointIds.map((id: string) => endpoints[id] != null)
+        endpointStatuses: msg.header.endpointIds.map((id: string) => endpoints.has(id))
       }
     })
   }
 
   function handleEndpointWaitRequest(msg: Message) {
-    const target = endpoints[msg.header.endpointId];
+    const target = endpoints.get(msg.header.endpointId)
     if (!target) throw "ENDPOINT_NOT_FOUND"
     if (target.waiters.find(x => x.endpointId == endpointId)) throw "ALREADY_WAITING"
     target.waiters.push({endpointId, responseId: msg.header.id});
@@ -379,12 +373,16 @@ const timers = [
   config.basicStats.interval),
 
   setInterval(() => {
-    for (const endpoint of providerRegistry.endpoints) endpoint.keepAlive();
+    for (const endpoint of endpoints.values())
+      if (providerRegistry.has(endpoint))
+        endpoint.keepAlive()
   },
   config.providerKeepAlive),
 
   setInterval(() => {
-    for (const id in endpoints) if (!providerRegistry.endpoints.has(endpoints[id])) endpoints[id].keepAlive();
+    for (const endpoint of endpoints.values())
+      if (!providerRegistry.has(endpoint))
+        endpoint.keepAlive()
   },
   config.nonProviderKeepAlive)
 ]
