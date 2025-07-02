@@ -1,16 +1,19 @@
 import cors from "cors";
 import express from "express";
 import expressRateLimit from "express-rate-limit";
-import { appendFile, readFileSync } from "fs";
+import { readFileSync } from "fs";
+import { appendFile } from "fs/promises";
 import http from "http";
 import https from "https";
 import { RateLimiterMemory } from "rate-limiter-flexible";
-import { WebSocketServer } from 'ws';
+import * as rxjs from "rxjs";
 import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
 import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import * as ws from "./websocket.js";
+const shutdown$ = new rxjs.Subject();
 const app = immediate(() => {
     const app = express();
     app.set("trust proxy", config.trustProxy);
@@ -41,20 +44,6 @@ const httpsServer = immediate(() => {
         return server;
     }
 });
-const wsServer = immediate(() => {
-    if (httpServer) {
-        const server = new WebSocketServer({ server: httpServer, verifyClient });
-        server.on("connection", onConnection);
-        return server;
-    }
-});
-const wssServer = immediate(() => {
-    if (httpsServer) {
-        const server = new WebSocketServer({ server: httpsServer, verifyClient });
-        server.on("connection", onConnection);
-        return server;
-    }
-});
 const endpoints = new Map();
 const pendingResponse = new Map();
 const basicStats = new StatsCounter();
@@ -62,6 +51,25 @@ const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemo
     points: config.nonProviderRateLimit.limit,
     duration: config.nonProviderRateLimit.windowMs / 1000
 }) : null;
+rxjs.merge(rxjs.iif(() => httpServer != null, makeWebSocketServer(httpServer), rxjs.EMPTY), rxjs.iif(() => httpsServer != null, makeWebSocketServer(httpsServer), rxjs.EMPTY), rxjs.interval(config.basicStats.interval).pipe(rxjs.tap(() => {
+    const now = new Date();
+    appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n")
+        .then(() => basicStats.clear())
+        .catch(console.error);
+})), rxjs.interval(config.providerKeepAlive).pipe(rxjs.tap(() => {
+    for (const endpoint of endpoints.values())
+        if (providerRegistry.has(endpoint))
+            endpoint.keepAlive();
+})), rxjs.interval(config.nonProviderKeepAlive).pipe(rxjs.tap(() => {
+    for (const endpoint of endpoints.values())
+        if (!providerRegistry.has(endpoint))
+            endpoint.keepAlive();
+})), rxjs.fromEvent(process, 'uncaughtException').pipe(rxjs.tap(console.error))).pipe(rxjs.takeUntil(shutdown$), rxjs.finalize(() => {
+    httpServer?.close();
+    httpsServer?.close();
+})).subscribe({
+    error: console.error
+});
 async function onHttpPost(req, res) {
     try {
         const service = req.params.service;
@@ -133,6 +141,9 @@ function getClientIp(req) {
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
     return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config.trustProxy)[0];
 }
+function makeWebSocketServer(server) {
+    return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.mergeMap(handleConnection)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
+}
 function verifyClient(info) {
     if (info.origin && config.corsOptions.origin instanceof RegExp) {
         return config.corsOptions.origin.test(info.origin);
@@ -144,18 +155,20 @@ function verifyClient(info) {
 function isPubSub(serviceName) {
     return /^#/.test(serviceName);
 }
-function onConnection(ws, upreq) {
-    const ip = getClientIp(upreq);
+function handleConnection(con) {
+    const ip = getClientIp(con.request);
     const endpointId = generateId();
-    const endpoint = makeEndpoint(endpointId, ws);
+    const endpoint = makeEndpoint(endpointId, con);
     endpoints.set(endpointId, endpoint);
-    ws.on("message", async function (data, isBinary) {
+    return rxjs.merge(con.message$.pipe(rxjs.concatMap(async (event) => {
         let msg;
         try {
-            if (isBinary)
-                msg = messageFromBuffer(data);
+            if (typeof event.data == 'string')
+                msg = messageFromString(event.data);
+            else if (Buffer.isBuffer(event.data))
+                msg = messageFromBuffer(event.data);
             else
-                msg = messageFromString(data.toString());
+                throw new Error("Unexpected payload type");
         }
         catch (err) {
             console.error(String(err));
@@ -195,12 +208,7 @@ function onConnection(ws, upreq) {
                 console.error(ip, endpointId, String(err), msg.header);
             }
         }
-    });
-    ws.on("pong", () => endpoint.isAlive = true);
-    ws.on("close", function () {
-        endpoints.delete(endpointId);
-        providerRegistry.remove(endpoint);
-        subscriberRegistry.remove(endpoint);
+    })), con.pong$.pipe(rxjs.tap(() => endpoint.isAlive = true))).pipe(rxjs.takeUntil(con.close$.pipe(rxjs.tap(() => {
         for (const waiter of endpoint.waiters) {
             endpoints.get(waiter.endpointId)?.send({
                 header: {
@@ -210,7 +218,11 @@ function onConnection(ws, upreq) {
                 }
             });
         }
-    });
+    }))), rxjs.finalize(() => {
+        endpoints.delete(endpointId);
+        providerRegistry.remove(endpoint);
+        subscriberRegistry.remove(endpoint);
+    }));
     function handleForward(msg) {
         const endpoint = endpoints.get(msg.header.to);
         if (endpoint) {
@@ -328,28 +340,6 @@ function onConnection(ws, upreq) {
         providerRegistry.cleanup();
     }
 }
-const timers = [
-    setInterval(() => {
-        const now = new Date();
-        appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
-        basicStats.clear();
-    }, config.basicStats.interval),
-    setInterval(() => {
-        for (const endpoint of endpoints.values())
-            if (providerRegistry.has(endpoint))
-                endpoint.keepAlive();
-    }, config.providerKeepAlive),
-    setInterval(() => {
-        for (const endpoint of endpoints.values())
-            if (!providerRegistry.has(endpoint))
-                endpoint.keepAlive();
-    }, config.nonProviderKeepAlive)
-];
-process.on('uncaughtException', console.error);
-function shutdown() {
-    httpServer?.close();
-    httpsServer?.close();
-    timers.forEach(clearInterval);
-}
-//for testing
-export { providerRegistry, shutdown, subscriberRegistry };
+export const debug = {
+    shutdown$
+};

@@ -3,7 +3,7 @@ import assert from "assert";
 import { Readable } from 'stream';
 import WebSocket from 'ws';
 import config from './config.js';
-import { shutdown } from "./index.js";
+import { debug as indexDebug } from "./index.js";
 import { debug as providerDebug } from "./provider.js";
 import { debug as subscriberDebug } from "./subscriber.js";
 import { describe, expect, runAll } from "./test-utils.js";
@@ -261,4 +261,4 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
 
 runAll()
     .catch(console.error)
-    .finally(shutdown)
+    .finally(() => indexDebug.shutdown$.next())

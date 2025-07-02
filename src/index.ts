@@ -1,17 +1,21 @@
 import cors from "cors";
 import express from "express";
 import expressRateLimit from "express-rate-limit";
-import { appendFile, readFileSync } from "fs";
+import { readFileSync } from "fs";
+import { appendFile } from "fs/promises";
 import http from "http";
 import https from "https";
 import { RateLimiterMemory } from "rate-limiter-flexible";
-import WebSocket, { WebSocketServer } from 'ws';
+import * as rxjs from "rxjs";
 import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
 import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import * as ws from "./websocket.js";
 
+
+const shutdown$ = new rxjs.Subject<void>()
 
 const app = immediate(() => {
   const app = express()
@@ -46,22 +50,6 @@ const httpsServer = immediate(() => {
   }
 })
 
-const wsServer = immediate(() => {
-  if (httpServer) {
-    const server = new WebSocketServer({server: httpServer, verifyClient})
-    server.on("connection", onConnection)
-    return server
-  }
-})
-
-const wssServer = immediate(() => {
-  if (httpsServer) {
-    const server = new WebSocketServer({server: httpsServer, verifyClient})
-    server.on("connection", onConnection)
-    return server
-  }
-})
-
 const endpoints = new Map<string, Endpoint>()
 const pendingResponse = new Map<string, (res: Message) => void>()
 const basicStats = new StatsCounter()
@@ -69,6 +57,54 @@ const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemo
   points: config.nonProviderRateLimit.limit,
   duration: config.nonProviderRateLimit.windowMs / 1000
 }) : null
+
+
+
+rxjs.merge(
+  rxjs.iif(
+    () => httpServer != null,
+    makeWebSocketServer(httpServer),
+    rxjs.EMPTY
+  ),
+  rxjs.iif(
+    () => httpsServer != null,
+    makeWebSocketServer(httpsServer),
+    rxjs.EMPTY
+  ),
+  rxjs.interval(config.basicStats.interval).pipe(
+    rxjs.tap(() => {
+      const now = new Date()
+      appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n")
+        .then(() => basicStats.clear())
+        .catch(console.error)
+    })
+  ),
+  rxjs.interval(config.providerKeepAlive).pipe(
+    rxjs.tap(() => {
+      for (const endpoint of endpoints.values())
+        if (providerRegistry.has(endpoint))
+          endpoint.keepAlive()
+    })
+  ),
+  rxjs.interval(config.nonProviderKeepAlive).pipe(
+    rxjs.tap(() => {
+      for (const endpoint of endpoints.values())
+        if (!providerRegistry.has(endpoint))
+          endpoint.keepAlive()
+    })
+  ),
+  rxjs.fromEvent(process, 'uncaughtException').pipe(
+    rxjs.tap(console.error)
+  )
+).pipe(
+  rxjs.takeUntil(shutdown$),
+  rxjs.finalize(() => {
+    httpServer?.close()
+    httpsServer?.close()
+  })
+).subscribe({
+  error: console.error
+})
 
 
 
@@ -149,6 +185,23 @@ function getClientIp(req: http.IncomingMessage) {
 
 
 
+function makeWebSocketServer(server: typeof httpServer) {
+  return ws.makeServer({server, verifyClient}).pipe(
+    rxjs.exhaustMap(server =>
+      rxjs.merge(
+        server.connection$.pipe(
+          rxjs.mergeMap(handleConnection)
+        ),
+        server.error$.pipe(
+          rxjs.tap(event => console.error(event.error))
+        )
+      ).pipe(
+        rxjs.finalize(() => server.close())
+      )
+    )
+  )
+}
+
 function verifyClient(info: {origin: string}) {
   if (info.origin && config.corsOptions.origin instanceof RegExp) {
     return (<RegExp>config.corsOptions.origin).test(info.origin);
@@ -161,66 +214,78 @@ function isPubSub(serviceName: string) {
   return /^#/.test(serviceName)
 }
 
-function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
-  const ip = getClientIp(upreq);
+function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
+  const ip = getClientIp(con.request!)
   const endpointId = generateId();
-  const endpoint = makeEndpoint(endpointId, ws)
+  const endpoint = makeEndpoint(endpointId, con)
   endpoints.set(endpointId, endpoint)
 
-  ws.on("message", async function(data: Buffer, isBinary: boolean) {
-    let msg: Message;
-    try {
-      if (isBinary) msg = messageFromBuffer(data);
-      else msg = messageFromString(data.toString());
-    }
-    catch (err) {
-      console.error(String(err));
-      return;
-    }
-    try {
-      if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) {
-        await nonProviderRateLimiter.consume(endpointId)
-      }
-      if (msg.header.to) handleForward(msg);
-      else if (msg.header.service) handleServiceRequest(msg, ip)
-      else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
-      else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
-      else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
-      else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg);
-      else if (msg.header.type == "SbCleanupRequest") handleCleanupRequest(msg);
-      else throw "Don't know what to do with message"
-    }
-    catch (err) {
-      if (msg.header.id) {
-        endpoint.send({
-          header: {
-            id: msg.header.id,
-            error: err instanceof Error ? err.message : String(err)
+  return rxjs.merge(
+    con.message$.pipe(
+      rxjs.concatMap(async event => {
+        let msg: Message;
+        try {
+          if (typeof event.data == 'string') msg = messageFromString(event.data)
+          else if (Buffer.isBuffer(event.data)) msg = messageFromBuffer(event.data)
+          else throw new Error("Unexpected payload type")
+        }
+        catch (err) {
+          console.error(String(err));
+          return;
+        }
+        try {
+          if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) {
+            await nonProviderRateLimiter.consume(endpointId)
           }
-        })
-      }
-      else {
-        console.error(ip, endpointId, String(err), msg.header);
-      }
-    }
-  })
-
-  ws.on("pong", () => endpoint.isAlive = true);
-
-  ws.on("close", function() {
-    endpoints.delete(endpointId)
-    providerRegistry.remove(endpoint);
-    subscriberRegistry.remove(endpoint)
-    for (const waiter of endpoint.waiters) {
-      endpoints.get(waiter.endpointId)?.send({
-        header: {
-          id: waiter.responseId,
-          type: "SbEndpointWaitResponse",
-          endpointId
+          if (msg.header.to) handleForward(msg);
+          else if (msg.header.service) handleServiceRequest(msg, ip)
+          else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
+          else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg);
+          else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
+          else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg);
+          else if (msg.header.type == "SbCleanupRequest") handleCleanupRequest(msg);
+          else throw "Don't know what to do with message"
+        }
+        catch (err) {
+          if (msg.header.id) {
+            endpoint.send({
+              header: {
+                id: msg.header.id,
+                error: err instanceof Error ? err.message : String(err)
+              }
+            })
+          }
+          else {
+            console.error(ip, endpointId, String(err), msg.header);
+          }
         }
       })
-    }
-  })
+    ),
+    con.pong$.pipe(
+      rxjs.tap(() => endpoint.isAlive = true)
+    )
+  ).pipe(
+    rxjs.takeUntil(
+      con.close$.pipe(
+        rxjs.tap(() => {
+          for (const waiter of endpoint.waiters) {
+            endpoints.get(waiter.endpointId)?.send({
+              header: {
+                id: waiter.responseId,
+                type: "SbEndpointWaitResponse",
+                endpointId
+              }
+            })
+          }
+        })
+      )
+    ),
+    rxjs.finalize(() => {
+      endpoints.delete(endpointId)
+      providerRegistry.remove(endpoint);
+      subscriberRegistry.remove(endpoint)
+    })
+  )
 
   function handleForward(msg: Message) {
     const endpoint = endpoints.get(msg.header.to)
@@ -357,38 +422,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
 
 
 
-const timers = [
-  setInterval(() => {
-    const now = new Date();
-    appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n", err => err && console.error(err));
-    basicStats.clear();
-  },
-  config.basicStats.interval),
-
-  setInterval(() => {
-    for (const endpoint of endpoints.values())
-      if (providerRegistry.has(endpoint))
-        endpoint.keepAlive()
-  },
-  config.providerKeepAlive),
-
-  setInterval(() => {
-    for (const endpoint of endpoints.values())
-      if (!providerRegistry.has(endpoint))
-        endpoint.keepAlive()
-  },
-  config.nonProviderKeepAlive)
-]
-
-process.on('uncaughtException', console.error);
-
-function shutdown() {
-  httpServer?.close()
-  httpsServer?.close()
-  timers.forEach(clearInterval);
+export const debug = {
+  shutdown$
 }
-
-//for testing
-export {
-  providerRegistry, shutdown, subscriberRegistry
-};

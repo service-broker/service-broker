@@ -1,4 +1,4 @@
-import WebSocket from "ws";
+import { Connection } from "./websocket.js";
 
 export interface Message {
   header: any
@@ -13,7 +13,7 @@ export interface Endpoint {
   keepAlive(): void
 }
 
-export function makeEndpoint(id: string, ws: WebSocket): Endpoint {
+export function makeEndpoint(id: string, ws: Connection): Endpoint {
   return {
     id,
     isAlive: true,
