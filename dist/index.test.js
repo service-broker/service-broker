@@ -125,9 +125,8 @@ function expectMessage(a, b) {
         (0, test_utils_1.expect)(index_1.providerRegistry.registry["tts"]).toHaveLength(2);
         (0, test_utils_1.expect)(index_1.providerRegistry.registry["tts"].map((x) => x.priority)).toEqual([6, 3]);
         (0, test_utils_1.expect)(index_1.providerRegistry.registry["transcode"]).toHaveLength(2);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["transcode"].map((x) => x.priority)).toEqual([10, undefined]);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["#log"]).toHaveLength(2);
-        (0, test_utils_1.expect)(index_1.providerRegistry.registry["#log"].map((x) => x.priority)).toEqual([undefined, undefined]);
+        (0, test_utils_1.expect)(index_1.providerRegistry.registry["transcode"].map((x) => x.priority)).toEqual([10, 0]);
+        (0, test_utils_1.expect)(index_1.subscriberRegistry.debug.registry.get("#log")?.size).toBe(2);
     }
     test("bad request", async () => {
         p1.send(JSON.stringify({ id: 1, type: "UnknownRequest" }));

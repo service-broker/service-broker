@@ -37,11 +37,8 @@ class ProviderRegistry {
                 : list;
             if (capableProviders.length)
                 return capableProviders.filter(x => x.priority == capableProviders[0].priority);
-            else
-                return null;
         }
-        else
-            return null;
+        return [];
     }
     cleanup() {
         for (const name in this.registry)

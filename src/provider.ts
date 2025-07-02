@@ -2,9 +2,9 @@ import { Endpoint } from "./endpoint";
 
 interface Provider {
   endpoint: Endpoint
-  capabilities: Set<string>
+  capabilities?: Set<string>
   priority: number
-  httpHeaders: string[]
+  httpHeaders?: string[]
 }
 
 export class ProviderRegistry {
@@ -17,9 +17,9 @@ export class ProviderRegistry {
   add(
     endpoint: Endpoint,
     name: string,
-    capabilities: string[],
+    capabilities: string[]|undefined,
     priority: number,
-    httpHeaders: string[]
+    httpHeaders: string[]|undefined
   ) {
     const list = this.registry[name] || (this.registry[name] = []);
     //keep sorted in descending priority
@@ -40,16 +40,16 @@ export class ProviderRegistry {
       this.endpoints.delete(endpoint);
     }
   }
-  find(name: string, requiredCapabilities: string[]|null): Provider[]|null {
+  find(name: string, requiredCapabilities: string[]|null) {
     const list = this.registry[name];
     if (list) {
       const capableProviders = requiredCapabilities
-        ? list.filter(provider => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities.has(x)))
+        ? list.filter(provider => !provider.capabilities || requiredCapabilities.every(x => provider.capabilities!.has(x)))
         : list;
-      if (capableProviders.length) return capableProviders.filter(x => x.priority == capableProviders[0].priority);
-      else return null;
+      if (capableProviders.length)
+        return capableProviders.filter(x => x.priority == capableProviders[0].priority)
     }
-    else return null;
+    return []
   }
   cleanup() {
     for (const name in this.registry) if (this.registry[name].length == 0) delete this.registry[name];
