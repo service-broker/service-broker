@@ -91,7 +91,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     //find providers
     const providers = providerRegistry.find(service, capabilities);
     if (!providers) {
-      res.status(404).end("No provider " + service);
+      res.status(404).end("NO_PROVIDER " + service);
       return;
     }
 
@@ -106,7 +106,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     //send to random provider
     const endpointId = generateId();
     let promise = new Promise<Message>((fulfill, reject) => {
-      pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+      pending[endpointId] = (res) => res.header.error ? reject(res.header.error) : fulfill(res);
     })
     promise = pTimeout(promise, Number(req.query.timeout || 15*1000));
     promise = promise.finally(() => delete pending[endpointId]);
@@ -137,7 +137,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
 }
 
 function getClientIp(req: http.IncomingMessage) {
-  if (!req.socket.remoteAddress) throw new Error("remoteAddress is null");
+  if (!req.socket.remoteAddress) throw "remoteAddress is null"
   const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
   return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1-config.trustProxy)[0];
 }
@@ -161,7 +161,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       })
       return {
         apply() {
-          if (!limiter.tryRemoveTokens(1)) throw new Error("Rate limit exceeded")
+          if (!limiter.tryRemoveTokens(1)) throw "RATE_LIMIT_EXCEEDED"
         }
       }
     }
@@ -186,7 +186,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg);
       else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg);
       else if (msg.header.type == "SbCleanupRequest") handleCleanupRequest(msg);
-      else throw new Error("Don't know what to do with message");
+      else throw "Don't know what to do with message"
     }
     catch (err) {
       if (msg.header.id) {
@@ -219,7 +219,9 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
     else if (pending[msg.header.to]) {
       pending[msg.header.to](msg);
     }
-    else throw new Error("Destination endpoint not found");
+    else {
+      throw "ENDPOINT_NOT_FOUND"
+    }
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
@@ -232,7 +234,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       if (msg.header.service.name.startsWith("#")) providers.forEach(x => x.endpoint.send(msg));
       else pickRandom(providers).endpoint.send(msg);
     }
-    else throw new Error("No provider " + msg.header.service.name);
+    else throw "NO_PROVIDER " + msg.header.service.name
   }
 
   function handleAdvertiseRequest(msg: Message) {
@@ -281,8 +283,8 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
 
   function handleEndpointWaitRequest(msg: Message) {
     const target = endpoints[msg.header.endpointId];
-    if (!target) throw new Error("NOT_FOUND");
-    if (target.waiters.find(x => x.endpointId == endpointId)) throw new Error("ALREADY_WAITING");
+    if (!target) throw "ENDPOINT_NOT_FOUND"
+    if (target.waiters.find(x => x.endpointId == endpointId)) throw "ALREADY_WAITING"
     target.waiters.push({endpointId, responseId: msg.header.id});
   }
 

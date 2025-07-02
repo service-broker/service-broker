@@ -86,7 +86,7 @@ async function onHttpPost(req, res) {
         //find providers
         const providers = providerRegistry.find(service, capabilities);
         if (!providers) {
-            res.status(404).end("No provider " + service);
+            res.status(404).end("NO_PROVIDER " + service);
             return;
         }
         //if topic then broadcast
@@ -99,7 +99,7 @@ async function onHttpPost(req, res) {
         //send to random provider
         const endpointId = (0, util_1.generateId)();
         let promise = new Promise((fulfill, reject) => {
-            pending[endpointId] = (res) => res.header.error ? reject(new Error(res.header.error)) : fulfill(res);
+            pending[endpointId] = (res) => res.header.error ? reject(res.header.error) : fulfill(res);
         });
         promise = (0, util_1.pTimeout)(promise, Number(req.query.timeout || 15 * 1000));
         promise = promise.finally(() => delete pending[endpointId]);
@@ -131,7 +131,7 @@ async function onHttpPost(req, res) {
 }
 function getClientIp(req) {
     if (!req.socket.remoteAddress)
-        throw new Error("remoteAddress is null");
+        throw "remoteAddress is null";
     const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
     return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
@@ -151,7 +151,7 @@ function onConnection(ws, upreq) {
             return {
                 apply() {
                     if (!limiter.tryRemoveTokens(1))
-                        throw new Error("Rate limit exceeded");
+                        throw "RATE_LIMIT_EXCEEDED";
                 }
             };
         }
@@ -186,7 +186,7 @@ function onConnection(ws, upreq) {
             else if (msg.header.type == "SbCleanupRequest")
                 handleCleanupRequest(msg);
             else
-                throw new Error("Don't know what to do with message");
+                throw "Don't know what to do with message";
         }
         catch (err) {
             if (msg.header.id) {
@@ -217,8 +217,9 @@ function onConnection(ws, upreq) {
         else if (pending[msg.header.to]) {
             pending[msg.header.to](msg);
         }
-        else
-            throw new Error("Destination endpoint not found");
+        else {
+            throw "ENDPOINT_NOT_FOUND";
+        }
     }
     function handleServiceRequest(msg, ip) {
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
@@ -232,7 +233,7 @@ function onConnection(ws, upreq) {
                 (0, util_1.pickRandom)(providers).endpoint.send(msg);
         }
         else
-            throw new Error("No provider " + msg.header.service.name);
+            throw "NO_PROVIDER " + msg.header.service.name;
     }
     function handleAdvertiseRequest(msg) {
         if (config_1.default.providerAuthToken
@@ -280,9 +281,9 @@ function onConnection(ws, upreq) {
     function handleEndpointWaitRequest(msg) {
         const target = endpoints[msg.header.endpointId];
         if (!target)
-            throw new Error("NOT_FOUND");
+            throw "ENDPOINT_NOT_FOUND";
         if (target.waiters.find(x => x.endpointId == endpointId))
-            throw new Error("ALREADY_WAITING");
+            throw "ALREADY_WAITING";
         target.waiters.push({ endpointId, responseId: msg.header.id });
     }
     function handleCleanupRequest(msg) {
