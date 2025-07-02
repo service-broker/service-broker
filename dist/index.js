@@ -156,16 +156,6 @@ function onConnection(ws, upreq) {
             };
         }
     });
-    const adminSecretValidator = (0, util_1.immediate)(() => {
-        if (config_1.default.adminSecret) {
-            return {
-                apply(msg) {
-                    if (msg.header.adminSecret != config_1.default.adminSecret)
-                        throw new Error("Forbidden");
-                }
-            };
-        }
-    });
     ws.on("message", function (data, isBinary) {
         let msg;
         try {
@@ -248,7 +238,11 @@ function onConnection(ws, upreq) {
             throw new Error("No provider " + msg.header.service.name);
     }
     function handleAdvertiseRequest(msg) {
-        adminSecretValidator?.apply(msg);
+        if (config_1.default.providerAuthToken
+            && msg.header.services?.some((service) => !/^#/.test(service.name))
+            && msg.header.authToken != config_1.default.providerAuthToken) {
+            throw "FORBIDDEN";
+        }
         providerRegistry.remove(endpoint);
         if (msg.header.services) {
             for (const service of msg.header.services)
@@ -258,7 +252,6 @@ function onConnection(ws, upreq) {
             endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
     }
     function handleStatusRequest(msg) {
-        adminSecretValidator?.apply(msg);
         const status = {
             numEndpoints: Object.keys(endpoints).length,
             providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
@@ -279,7 +272,6 @@ function onConnection(ws, upreq) {
         }
     }
     function handleEndpointStatusRequest(msg) {
-        adminSecretValidator?.apply(msg);
         endpoint.send({
             header: {
                 id: msg.header.id,
@@ -289,7 +281,6 @@ function onConnection(ws, upreq) {
         });
     }
     function handleEndpointWaitRequest(msg) {
-        adminSecretValidator?.apply(msg);
         const target = endpoints[msg.header.endpointId];
         if (!target)
             throw new Error("NOT_FOUND");
@@ -298,7 +289,6 @@ function onConnection(ws, upreq) {
         target.waiters.push({ endpointId, responseId: msg.header.id });
     }
     function handleCleanupRequest(msg) {
-        adminSecretValidator?.apply(msg);
         providerRegistry.cleanup();
     }
 }

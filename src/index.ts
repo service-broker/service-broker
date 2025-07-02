@@ -167,16 +167,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
     }
   })
 
-  const adminSecretValidator = immediate(() => {
-    if (config.adminSecret) {
-      return {
-        apply(msg: Message) {
-          if (msg.header.adminSecret != config.adminSecret) throw new Error("Forbidden")
-        }
-      }
-    }
-  })
-
   ws.on("message", function(data: Buffer, isBinary: boolean) {
     let msg: Message;
     try {
@@ -249,7 +239,12 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleAdvertiseRequest(msg: Message) {
-    adminSecretValidator?.apply(msg)
+    if (config.providerAuthToken
+      && msg.header.services?.some((service: any) => !/^#/.test(service.name))
+      && msg.header.authToken != config.providerAuthToken
+    ) {
+      throw "FORBIDDEN"
+    }
     providerRegistry.remove(endpoint);
     if (msg.header.services) {
       for (const service of msg.header.services) providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
@@ -258,7 +253,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleStatusRequest(msg: Message) {
-    adminSecretValidator?.apply(msg)
     const status = {
       numEndpoints: Object.keys(endpoints).length,
       providerRegistry: Object.keys(providerRegistry.registry).map(name => ({
@@ -279,7 +273,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleEndpointStatusRequest(msg: Message) {
-    adminSecretValidator?.apply(msg)
     endpoint.send({
       header: {
         id: msg.header.id,
@@ -290,7 +283,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleEndpointWaitRequest(msg: Message) {
-    adminSecretValidator?.apply(msg)
     const target = endpoints[msg.header.endpointId];
     if (!target) throw new Error("NOT_FOUND");
     if (target.waiters.find(x => x.endpointId == endpointId)) throw new Error("ALREADY_WAITING");
@@ -298,7 +290,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleCleanupRequest(msg: Message) {
-    adminSecretValidator?.apply(msg)
     providerRegistry.cleanup();
   }
 }
