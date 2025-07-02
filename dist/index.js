@@ -4,12 +4,13 @@ import expressRateLimit from "express-rate-limit";
 import { appendFile, readFileSync } from "fs";
 import http from "http";
 import https from "https";
+import { RateLimiterMemory } from "rate-limiter-flexible";
 import { WebSocketServer } from 'ws';
 import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 const app = immediate(() => {
     const app = express();
     app.set("trust proxy", config.trustProxy);
@@ -57,6 +58,10 @@ const wssServer = immediate(() => {
 const endpoints = new Map();
 const pendingResponse = new Map();
 const basicStats = new StatsCounter();
+const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemory({
+    points: config.nonProviderRateLimit.limit,
+    duration: config.nonProviderRateLimit.windowMs / 1000
+}) : null;
 async function onHttpPost(req, res) {
     try {
         const service = req.params.service;
@@ -144,21 +149,7 @@ function onConnection(ws, upreq) {
     const endpointId = generateId();
     const endpoint = makeEndpoint(endpointId, ws);
     endpoints.set(endpointId, endpoint);
-    const nonProviderRateLimiter = immediate(() => {
-        if (config.nonProviderRateLimit) {
-            const limiter = makeRateLimiter({
-                tokensPerInterval: config.nonProviderRateLimit.limit,
-                interval: config.nonProviderRateLimit.windowMs
-            });
-            return {
-                apply() {
-                    if (!limiter.tryRemoveTokens(1))
-                        throw "RATE_LIMIT_EXCEEDED";
-                }
-            };
-        }
-    });
-    ws.on("message", function (data, isBinary) {
+    ws.on("message", async function (data, isBinary) {
         let msg;
         try {
             if (isBinary)
@@ -171,8 +162,9 @@ function onConnection(ws, upreq) {
             return;
         }
         try {
-            if (nonProviderRateLimiter && !providerRegistry.has(endpoint))
-                nonProviderRateLimiter.apply();
+            if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) {
+                await nonProviderRateLimiter.consume(endpointId);
+            }
             if (msg.header.to)
                 handleForward(msg);
             else if (msg.header.service)

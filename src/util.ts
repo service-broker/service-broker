@@ -67,29 +67,6 @@ export function generateId() {
   return Math.random().toString(36).slice(2)
 }
 
-export function makeRateLimiter({tokensPerInterval, interval}: {
-  tokensPerInterval: number,
-  interval: number
-}) {
-  let avail = 0, expire = 0
-  return {
-    tryRemoveTokens(count: number) {
-      const now = Date.now()
-      if (expire <= now) {
-        avail = tokensPerInterval
-        expire = now + interval
-      }
-      if (count <= avail) {
-        avail -= count
-        return true
-      }
-      else {
-        return false
-      }
-    }
-  }
-}
-
 export class StatsCounter {
   private map: {[key: string]: number};
   constructor() {

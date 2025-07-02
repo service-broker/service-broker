@@ -4,12 +4,13 @@ import expressRateLimit from "express-rate-limit";
 import { appendFile, readFileSync } from "fs";
 import http from "http";
 import https from "https";
+import { RateLimiterMemory } from "rate-limiter-flexible";
 import WebSocket, { WebSocketServer } from 'ws';
 import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, generateId, getStream, immediate, makeRateLimiter, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 
 
 const app = immediate(() => {
@@ -64,6 +65,10 @@ const wssServer = immediate(() => {
 const endpoints = new Map<string, Endpoint>()
 const pendingResponse = new Map<string, (res: Message) => void>()
 const basicStats = new StatsCounter()
+const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemory({
+  points: config.nonProviderRateLimit.limit,
+  duration: config.nonProviderRateLimit.windowMs / 1000
+}) : null
 
 
 
@@ -162,21 +167,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const endpoint = makeEndpoint(endpointId, ws)
   endpoints.set(endpointId, endpoint)
 
-  const nonProviderRateLimiter = immediate(() => {
-    if (config.nonProviderRateLimit) {
-      const limiter = makeRateLimiter({
-        tokensPerInterval: config.nonProviderRateLimit.limit,
-        interval: config.nonProviderRateLimit.windowMs
-      })
-      return {
-        apply() {
-          if (!limiter.tryRemoveTokens(1)) throw "RATE_LIMIT_EXCEEDED"
-        }
-      }
-    }
-  })
-
-  ws.on("message", function(data: Buffer, isBinary: boolean) {
+  ws.on("message", async function(data: Buffer, isBinary: boolean) {
     let msg: Message;
     try {
       if (isBinary) msg = messageFromBuffer(data);
@@ -187,7 +178,9 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       return;
     }
     try {
-      if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) nonProviderRateLimiter.apply()
+      if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) {
+        await nonProviderRateLimiter.consume(endpointId)
+      }
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg, ip)
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);

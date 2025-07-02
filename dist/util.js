@@ -59,25 +59,6 @@ export function pTimeout(promise, millis) {
 export function generateId() {
     return Math.random().toString(36).slice(2);
 }
-export function makeRateLimiter({ tokensPerInterval, interval }) {
-    let avail = 0, expire = 0;
-    return {
-        tryRemoveTokens(count) {
-            const now = Date.now();
-            if (expire <= now) {
-                avail = tokensPerInterval;
-                expire = now + interval;
-            }
-            if (count <= avail) {
-                avail -= count;
-                return true;
-            }
-            else {
-                return false;
-            }
-        }
-    };
-}
 export class StatsCounter {
     constructor() {
         this.map = {};
