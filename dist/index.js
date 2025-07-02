@@ -21,9 +21,9 @@ const util_1 = require("./util");
 const app = (0, util_1.immediate)(() => {
     const app = (0, express_1.default)();
     app.set("trust proxy", config_1.default.trustProxy);
+    app.use((0, cors_1.default)(config_1.default.corsOptions));
     app.get("/", (req, res) => res.end("Healthcheck OK"));
-    app.options("/:service", (0, cors_1.default)(config_1.default.corsOptions));
-    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
+    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], onHttpPost);
     return app;
 });
 const httpServer = (0, util_1.immediate)(() => {
@@ -141,7 +141,12 @@ function getClientIp(req) {
     return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config_1.default.trustProxy)[0];
 }
 function verifyClient(info) {
-    return config_1.default.corsOptions.origin.test(info.origin);
+    if (info.origin && config_1.default.corsOptions.origin instanceof RegExp) {
+        return config_1.default.corsOptions.origin.test(info.origin);
+    }
+    else {
+        return true;
+    }
 }
 function isPubSub(serviceName) {
     return /^#/.test(serviceName);

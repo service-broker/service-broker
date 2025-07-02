@@ -27,7 +27,7 @@ exports.default = {
     providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15 * 1000),
     nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15 * 60 * 1000),
     corsOptions: {
-        origin: new RegExp(process.env.ALLOWED_ORIGINS || "."),
+        origin: process.env.ALLOWED_ORIGINS ? new RegExp(process.env.ALLOWED_ORIGINS) : "*",
         methods: "GET,POST",
         allowedHeaders: "x-service-request-header, content-type",
         exposedHeaders: "x-service-response-header",
