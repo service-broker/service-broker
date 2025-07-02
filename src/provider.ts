@@ -14,7 +14,13 @@ export class ProviderRegistry {
     this.registry = {};
     this.endpoints = new Set<Endpoint>();
   }
-  add(endpoint: Endpoint, name: string, capabilities: string[], priority: number, httpHeaders: string[]) {
+  add(
+    endpoint: Endpoint,
+    name: string,
+    capabilities: string[],
+    priority: number,
+    httpHeaders: string[]
+  ) {
     const list = this.registry[name] || (this.registry[name] = []);
     //keep sorted in descending priority
     const index = list.findIndex(x => x.priority < priority);

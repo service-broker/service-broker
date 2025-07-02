@@ -206,8 +206,15 @@ function onConnection(ws, upreq) {
     ws.on("close", function () {
         delete endpoints[endpointId];
         providerRegistry.remove(endpoint);
-        for (const waiter of endpoint.waiters)
-            endpoints[waiter.endpointId]?.send({ header: { id: waiter.responseId, type: "SbEndpointWaitResponse", endpointId } });
+        for (const waiter of endpoint.waiters) {
+            endpoints[waiter.endpointId]?.send({
+                header: {
+                    id: waiter.responseId,
+                    type: "SbEndpointWaitResponse",
+                    endpointId
+                }
+            });
+        }
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
@@ -246,8 +253,14 @@ function onConnection(ws, upreq) {
             for (const service of msg.header.services)
                 providerRegistry.add(endpoint, service.name, service.capabilities, service.priority, service.httpHeaders);
         }
-        if (msg.header.id)
-            endpoint.send({ header: { id: msg.header.id, type: "SbAdvertiseResponse" } });
+        if (msg.header.id) {
+            endpoint.send({
+                header: {
+                    id: msg.header.id,
+                    type: "SbAdvertiseResponse"
+                }
+            });
+        }
     }
     function handleStatusRequest(msg) {
         const status = {
@@ -261,8 +274,15 @@ function onConnection(ws, upreq) {
                 }))
             }))
         };
-        if (msg.header.id)
-            endpoint.send({ header: { id: msg.header.id, type: "SbStatusResponse" }, payload: JSON.stringify(status) });
+        if (msg.header.id) {
+            endpoint.send({
+                header: {
+                    id: msg.header.id,
+                    type: "SbStatusResponse"
+                },
+                payload: JSON.stringify(status)
+            });
+        }
         else {
             console.log("numEndpoints:", status.numEndpoints);
             for (const entry of status.providerRegistry)
