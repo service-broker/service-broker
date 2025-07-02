@@ -22,7 +22,7 @@ const app = (0, util_1.immediate)(() => {
     app.set("trust proxy", config_1.default.trustProxy);
     app.get("/", (req, res) => res.end("Healthcheck OK"));
     app.options("/:service", (0, cors_1.default)(config_1.default.corsOptions));
-    app.post("/:service", config_1.default.serviceRequestRateLimit ? (0, express_rate_limit_1.default)(config_1.default.serviceRequestRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
+    app.post("/:service", config_1.default.nonProviderRateLimit ? (0, express_rate_limit_1.default)(config_1.default.nonProviderRateLimit) : [], (0, cors_1.default)(config_1.default.corsOptions), onHttpPost);
     return app;
 });
 const httpServer = (0, util_1.immediate)(() => {
@@ -142,11 +142,11 @@ function onConnection(ws, upreq) {
     const ip = getClientIp(upreq);
     const endpointId = (0, util_1.generateId)();
     const endpoint = endpoints[endpointId] = (0, endpoint_1.makeEndpoint)(endpointId, ws);
-    const serviceRequestRateLimiter = (0, util_1.immediate)(() => {
-        if (config_1.default.serviceRequestRateLimit) {
+    const nonProviderRateLimiter = (0, util_1.immediate)(() => {
+        if (config_1.default.nonProviderRateLimit) {
             const limiter = (0, util_1.makeRateLimiter)({
-                tokensPerInterval: config_1.default.serviceRequestRateLimit.limit,
-                interval: config_1.default.serviceRequestRateLimit.windowMs
+                tokensPerInterval: config_1.default.nonProviderRateLimit.limit,
+                interval: config_1.default.nonProviderRateLimit.windowMs
             });
             return {
                 apply() {
@@ -169,6 +169,8 @@ function onConnection(ws, upreq) {
             return;
         }
         try {
+            if (nonProviderRateLimiter && !providerRegistry.endpoints.has(endpoint))
+                nonProviderRateLimiter.apply();
             if (msg.header.to)
                 handleForward(msg);
             else if (msg.header.service)
@@ -209,9 +211,6 @@ function onConnection(ws, upreq) {
     });
     function handleForward(msg) {
         if (endpoints[msg.header.to]) {
-            //if this is a service request, apply rate limit
-            if (msg.header.service && !providerRegistry.endpoints.has(endpoint))
-                serviceRequestRateLimiter?.apply();
             msg.header.from = endpointId;
             endpoints[msg.header.to].send(msg);
         }
@@ -222,8 +221,6 @@ function onConnection(ws, upreq) {
             throw new Error("Destination endpoint not found");
     }
     function handleServiceRequest(msg, ip) {
-        if (!providerRegistry.endpoints.has(endpoint))
-            serviceRequestRateLimiter?.apply();
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
         msg.header.ip = ip;
         const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);

@@ -43,15 +43,11 @@ export default {
 
   trustProxy: Number(process.env.TRUST_PROXY || 0),
 
-  serviceRequestRateLimit: immediate(() => {
+  nonProviderRateLimit: immediate(() => {
     if (process.env.RATE_LIMIT) {
-      assert(process.env.TRUST_PROXY, "Missing env TRUST_PROXY")
-      assert(/^\d+,\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT")
-      const rateLimit = process.env.RATE_LIMIT.split(",").map(Number)
-      return {
-        limit: rateLimit[0],
-        windowMs: rateLimit[1],
-      }
+      assert(/^\d+[,/]\d+$/.test(process.env.RATE_LIMIT), "Bad env RATE_LIMIT")
+      const [limit, windowMs] = process.env.RATE_LIMIT.split(/[,/]/).map(Number)
+      return {limit, windowMs}
     }
   }),
 

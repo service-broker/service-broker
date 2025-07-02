@@ -17,7 +17,7 @@ const app = immediate(() => {
   app.set("trust proxy", config.trustProxy);
   app.get("/", (req, res) => res.end("Healthcheck OK"));
   app.options("/:service", cors(config.corsOptions) as express.RequestHandler);
-  app.post("/:service", config.serviceRequestRateLimit ? expressRateLimit(config.serviceRequestRateLimit) : [], cors(config.corsOptions), onHttpPost);
+  app.post("/:service", config.nonProviderRateLimit ? expressRateLimit(config.nonProviderRateLimit) : [], cors(config.corsOptions), onHttpPost);
   return app
 })
 
@@ -153,11 +153,11 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   const endpointId = generateId();
   const endpoint = endpoints[endpointId] = makeEndpoint(endpointId, ws)
 
-  const serviceRequestRateLimiter = immediate(() => {
-    if (config.serviceRequestRateLimit) {
+  const nonProviderRateLimiter = immediate(() => {
+    if (config.nonProviderRateLimit) {
       const limiter = makeRateLimiter({
-        tokensPerInterval: config.serviceRequestRateLimit.limit,
-        interval: config.serviceRequestRateLimit.windowMs
+        tokensPerInterval: config.nonProviderRateLimit.limit,
+        interval: config.nonProviderRateLimit.windowMs
       })
       return {
         apply() {
@@ -178,6 +178,7 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
       return;
     }
     try {
+      if (nonProviderRateLimiter && !providerRegistry.endpoints.has(endpoint)) nonProviderRateLimiter.apply()
       if (msg.header.to) handleForward(msg);
       else if (msg.header.service) handleServiceRequest(msg, ip)
       else if (msg.header.type == "SbAdvertiseRequest") handleAdvertiseRequest(msg);
@@ -212,9 +213,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
 
   function handleForward(msg: Message) {
     if (endpoints[msg.header.to]) {
-      //if this is a service request, apply rate limit
-      if (msg.header.service && !providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
-
       msg.header.from = endpointId;
       endpoints[msg.header.to].send(msg);
     }
@@ -225,7 +223,6 @@ function onConnection(ws: WebSocket, upreq: http.IncomingMessage) {
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
-    if (!providerRegistry.endpoints.has(endpoint)) serviceRequestRateLimiter?.apply()
     basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
 
     msg.header.ip = ip;
