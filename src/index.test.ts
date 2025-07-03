@@ -1,103 +1,36 @@
-
-import assert from "assert";
-import { Readable } from 'stream';
-import WebSocket from 'ws';
+import * as rxjs from "rxjs";
 import config from './config.js';
-import { debug as indexDebug } from "./index.js";
 import { debug as providerDebug } from "./provider.js";
 import { debug as subscriberDebug } from "./subscriber.js";
-import { describe, expect, runAll } from "./test-utils.js";
-import { getStream, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
-
-function expectMessage(a: any, b: {header: Record<string, unknown>, payload: unknown}) {
-    assert(typeof a == "object" && a)
-    assert(typeof a.header == "object" && a.header)
-    assert(typeof a.header.from == "string")
-    assert(a.header.ip == "::1" || a.header.ip == "127.0.0.1")
-    for (const p in b.header) expect(a.header[p]).toEqual(b.header[p])
-    expect(a.payload).toEqual(b.payload)
-}
-
-
-describe("test helper functions", ({test}) => {
-    test("pickRandom", () => {
-        const list = [1,2,3,4,5,6,7];
-        for (let i=0; i<100; i++) expect(list.indexOf(pickRandom(list))).not.toBe(-1);
-    })
-
-    test("messageFromString", () => {
-        expect(() => messageFromString('bad')).toThrow("Message doesn't have JSON header");
-        expect(() => messageFromString('{bad}\nCrap')).toThrow("Failed to parse message header");
-        expect(messageFromString('{"a":1}')).toEqual({header:{a:1}, payload:undefined});
-        expect(messageFromString('{"a":1}\n')).toEqual({header:{a:1}, payload:""});
-        expect(messageFromString('{"a":1}\nCrap')).toEqual({header:{a:1}, payload:"Crap"});
-    })
-
-    test("messageFromBuffer", () => {
-        expect(() => messageFromBuffer(Buffer.from('bad'))).toThrow("Message doesn't have JSON header");
-        expect(() => messageFromBuffer(Buffer.from('{bad}\nCrap'))).toThrow("Failed to parse message header");
-        expect(messageFromBuffer(Buffer.from('{"a":1}'))).toEqual({header:{a:1}, payload:undefined});
-        expect(messageFromBuffer(Buffer.from('{"a":1}\n'))).toEqual({header:{a:1}, payload:Buffer.from("")});
-        expect(messageFromBuffer(Buffer.from('{"a":1}\nCrap'))).toEqual({header:{a:1}, payload:Buffer.from("Crap")});
-    })
-
-    test("getStream", async () => {
-        const readable = new Readable()
-        readable._read = () => {}
-        const promise = getStream(readable).then(x => x.toString())
-        readable.push("Hello, ")
-        await new Promise<void>(f => setTimeout(f, 100))
-        readable.push("world")
-        readable.push(null)
-        expect(await promise).toBe("Hello, world")
-    })
-
-    test("pTimeout success", async () => {
-        const promise = pTimeout(new Promise<string>(f => setTimeout(() => f("Success"), 100)), 200)
-        expect(await promise).toBe("Success")
-    })
-
-    test("pTimeout timeout", async () => {
-        const promise = pTimeout(new Promise<void>(f => setTimeout(f, 200)), 100)
-        expect(promise).rejects("Timeout")
-    })
-})
-
+import { describe, expect, oneOf, valueOfType } from "./test-utils.js";
+import { messageFromBuffer, messageFromString } from "./util.js";
+import { Connection, connect } from './websocket.js';
 
 
 describe("test service provider", ({beforeEach, afterEach, test}) => {
-    let p1: WebSocket;
-    let p2: WebSocket;
-    let c1: WebSocket;
+    let p1: Connection, p2: Connection, c1: Connection
 
     beforeEach(async () => {
-        p1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
-        p2 = new WebSocket(`ws://localhost:${config.listeningPort}`);
-        c1 = new WebSocket(`ws://localhost:${config.listeningPort}`);
-        await Promise.all([
-            new Promise(fulfill => p1.once("open", fulfill)),
-            new Promise(fulfill => p2.once("open", fulfill)),
-            new Promise(fulfill => c1.once("open", fulfill))
-        ])
+        [p1, p2, c1] = await rxjs.firstValueFrom(
+            rxjs.forkJoin([
+                connect(`ws://localhost:${config.listeningPort}`),
+                connect(`ws://localhost:${config.listeningPort}`),
+                connect(`ws://localhost:${config.listeningPort}`)
+            ])
+        )
     })
+
     afterEach(async () => {
         p1.close();
         p2.close();
         c1.close();
-        await Promise.all([
-            new Promise(fulfill => p1.once("close", fulfill)),
-            new Promise(fulfill => p2.once("close", fulfill)),
-            new Promise(fulfill => c1.once("close", fulfill))
-        ])
     })
-    
-    function receive(ws: WebSocket) {
-        return new Promise(fulfill => {
-            ws.once("message", (data: Buffer, isBinary) => {
-                if (isBinary) fulfill(messageFromBuffer(data));
-                else fulfill(messageFromString(data.toString()));
-            })
-        })
+
+    async function receive(ws: Connection) {
+        const event = await rxjs.firstValueFrom(ws.message$)
+        if (typeof event.data == 'string') return messageFromString(event.data)
+        if (Buffer.isBuffer(event.data)) return messageFromBuffer(event.data)
+        throw new Error("Unexpected payload type")
     }
 
     async function providersAdvertise() {
@@ -136,12 +69,23 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
         expect(providerDebug.registry.get("tts")?.map(x => x.priority)).toEqual([6,3])
         expect(providerDebug.registry.get("transcode")).toHaveLength(2)
         expect(providerDebug.registry.get("transcode")?.map(x => x.priority)).toEqual([10,0])
-        expect(subscriberDebug.registry.get("#log")?.size).toBe(2)
+        expect(subscriberDebug.registry.get("#log")?.size).toEqual(2)
+    }
+
+    function wrapHeader(header: object) {
+        return {
+            from: valueOfType('string'),
+            ip: oneOf('::1', '127.0.0.1'),
+            ...header
+        }
     }
 
     test("bad request", async () => {
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}, payload:undefined});
+        expect(await receive(p1)).toEqual({
+            header: {id:1, error:"Don't know what to do with message"},
+            payload: undefined
+        })
     })
 
     test("request success", async () => {
@@ -154,8 +98,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"tts", capabilities:["v1"]}
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
-        expectMessage(await receive(p2), {
-            header,
+        expect(await receive(p2)).toEqual({
+            header: wrapHeader(header),
             payload: "This is the text payload"
         });
 
@@ -165,8 +109,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"transcode", capabilities:["mp3"]}
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
-        expectMessage(await receive(p1), {
-            header,
+        expect(await receive(p1)).toEqual({
+            header: wrapHeader(header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -176,8 +120,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"transcode"}
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
-        expectMessage(await receive(p1), {
-            header,
+        expect(await receive(p1)).toEqual({
+            header: wrapHeader(header),
             payload: Buffer.from("This is the binary payload")
         })
 
@@ -187,8 +131,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"tts", capabilities:["v2"]}
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
-        expectMessage(await receive(p1), {
-            header,
+        expect(await receive(p1)).toEqual({
+            header: wrapHeader(header),
             payload: "This is the text payload"
         });
 
@@ -198,8 +142,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"tts", capabilities:["v1", "v2"]}
         };
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
-        expectMessage(await receive(p1), {
-            header,
+        expect(await receive(p1)).toEqual({
+            header: wrapHeader(header),
             payload: "This is the text payload"
         });
 
@@ -209,8 +153,8 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"transcode", capabilities:["mp3", "hifi"]}
         };
         c1.send(Buffer.from(JSON.stringify(header) + "\nThis is the binary payload"));
-        expectMessage(await receive(p2), {
-            header,
+        expect(await receive(p2)).toEqual({
+            header: wrapHeader(header),
             payload: Buffer.from("This is the binary payload")
         });
 
@@ -220,12 +164,12 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
             service:{name:"#log", capabilities:["err"]}
         }
         c1.send(JSON.stringify(header) + "\nThis is the text payload");
-        expectMessage(await receive(p1), {
-            header,
+        expect(await receive(p1)).toEqual({
+            header: wrapHeader(header),
             payload: "This is the text payload"
         })
-        expectMessage(await receive(p2), {
-            header,
+        expect(await receive(p2)).toEqual({
+            header: wrapHeader(header),
             payload: "This is the text payload"
         })
 
@@ -251,14 +195,14 @@ describe("test service provider", ({beforeEach, afterEach, test}) => {
 
         //check no more messages pending
         p1.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p1)).toEqual({header:{id:1, error:"Don't know what to do with message"}, payload:undefined});
+        expect(await receive(p1)).toEqual({
+            header: {id:1, error:"Don't know what to do with message"},
+            payload: undefined
+        })
         p2.send(JSON.stringify({id:1, type:"UnknownRequest"}));
-        expect(await receive(p2)).toEqual({header:{id:1, error:"Don't know what to do with message"}, payload:undefined});
+        expect(await receive(p2)).toEqual({
+            header: {id:1, error:"Don't know what to do with message"},
+            payload: undefined
+        })
     })
 })
-
-
-
-runAll()
-    .catch(console.error)
-    .finally(() => indexDebug.shutdown$.next())
