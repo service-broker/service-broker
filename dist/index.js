@@ -11,7 +11,7 @@ import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 import * as ws from "./websocket.js";
 const shutdown$ = new rxjs.Subject();
 const app = immediate(() => {
@@ -73,7 +73,7 @@ rxjs.merge(rxjs.iif(() => httpServer != null, makeWebSocketServer(httpServer), r
 async function onHttpPost(req, res) {
     try {
         const service = req.params.service;
-        const capabilities = req.query.capabilities ? req.query.capabilities.split(',') : null;
+        const capabilities = req.query.capabilities ? req.query.capabilities.split(',') : undefined;
         const header = JSON.parse(req.get("x-service-request-header") || "{}");
         const payload = await getStream(req)
             .then(buffer => req.is(config.textMimes) ? buffer.toString() : buffer);
@@ -121,7 +121,7 @@ async function onHttpPost(req, res) {
         provider.endpoint.send({ header, payload });
         const msg = await promise;
         //forward the response
-        if (msg.header.contentType) {
+        if (typeof msg.header.contentType == 'string') {
             res.set("content-type", msg.header.contentType);
             delete msg.header.contentType;
         }
@@ -224,6 +224,8 @@ function handleConnection(con) {
         subscriberRegistry.remove(endpoint);
     }));
     function handleForward(msg) {
+        if (typeof msg.header.to != 'string')
+            throw 'BAD_REQUEST';
         const endpoint = endpoints.get(msg.header.to);
         if (endpoint) {
             msg.header.from = endpointId;
@@ -238,6 +240,13 @@ function handleConnection(con) {
         throw "ENDPOINT_NOT_FOUND";
     }
     function handleServiceRequest(msg, ip) {
+        if (typeof msg.header.service != 'object' || msg.header.service == null)
+            throw 'BAD_REQUEST';
+        assertRecord(msg.header.service);
+        if (typeof msg.header.service.name != 'string')
+            throw 'BAD_REQUEST';
+        if (typeof msg.header.service.capabilities != 'undefined' && !Array.isArray(msg.header.service.capabilities))
+            throw 'BAD_REQUEST';
         basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
         msg.header.from = endpointId;
         msg.header.ip = ip;
@@ -255,6 +264,8 @@ function handleConnection(con) {
         }
     }
     function handleAdvertiseRequest(msg) {
+        if (!Array.isArray(msg.header.services))
+            throw 'BAD_REQUEST';
         const { services, topics } = parseAdvertisedServices(msg.header.services);
         if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken)
             throw "FORBIDDEN";
@@ -276,9 +287,11 @@ function handleConnection(con) {
     function parseAdvertisedServices(items) {
         const services = [];
         const topics = [];
-        if (!Array.isArray(items))
-            throw "BAD_REQUEST";
-        for (const { name, capabilities, priority, httpHeaders } of items) {
+        for (const item of items) {
+            if (typeof item != 'object' || item == null)
+                throw 'BAD_REQUEST';
+            assertRecord(item);
+            const { name, capabilities, priority, httpHeaders } = item;
             if (typeof name != "string")
                 throw "BAD_REQUEST";
             if (typeof capabilities != "undefined" && !Array.isArray(capabilities))
@@ -320,6 +333,8 @@ function handleConnection(con) {
         }
     }
     function handleEndpointStatusRequest(msg) {
+        if (!Array.isArray(msg.header.endpointIds))
+            throw 'BAD_REQUEST';
         endpoint.send({
             header: {
                 id: msg.header.id,
@@ -329,6 +344,8 @@ function handleConnection(con) {
         });
     }
     function handleEndpointWaitRequest(msg) {
+        if (typeof msg.header.endpointId != 'string')
+            throw 'BAD_REQUEST';
         const target = endpoints.get(msg.header.endpointId);
         if (!target)
             throw "ENDPOINT_NOT_FOUND";

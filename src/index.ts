@@ -11,7 +11,7 @@ import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
 import * as ws from "./websocket.js";
 
 
@@ -111,7 +111,7 @@ rxjs.merge(
 async function onHttpPost(req: express.Request, res: express.Response) {
   try {
     const service = req.params.service;
-    const capabilities = req.query.capabilities ? (req.query.capabilities as string).split(',') : null;
+    const capabilities = req.query.capabilities ? (req.query.capabilities as string).split(',') : undefined
     const header = JSON.parse(req.get("x-service-request-header") || "{}");
     const payload = await getStream(req)
       .then(buffer => req.is(config.textMimes) ? buffer.toString() : buffer)
@@ -164,7 +164,7 @@ async function onHttpPost(req: express.Request, res: express.Response) {
     const msg = await promise;
 
     //forward the response
-    if (msg.header.contentType) {
+    if (typeof msg.header.contentType == 'string') {
       res.set("content-type", msg.header.contentType);
       delete msg.header.contentType;
     }
@@ -288,6 +288,7 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
   )
 
   function handleForward(msg: Message) {
+    if (typeof msg.header.to != 'string') throw 'BAD_REQUEST'
     const endpoint = endpoints.get(msg.header.to)
     if (endpoint) {
       msg.header.from = endpointId;
@@ -303,6 +304,10 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
   }
 
   function handleServiceRequest(msg: Message, ip: string) {
+    if (typeof msg.header.service != 'object' || msg.header.service == null) throw 'BAD_REQUEST'
+    assertRecord(msg.header.service)
+    if (typeof msg.header.service.name != 'string') throw 'BAD_REQUEST'
+    if (typeof msg.header.service.capabilities != 'undefined' && !Array.isArray(msg.header.service.capabilities)) throw 'BAD_REQUEST'
     basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
     msg.header.from = endpointId;
     msg.header.ip = ip;
@@ -317,6 +322,7 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
   }
 
   function handleAdvertiseRequest(msg: Message) {
+    if (!Array.isArray(msg.header.services)) throw 'BAD_REQUEST'
     const {services, topics} = parseAdvertisedServices(msg.header.services)
     if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken) throw "FORBIDDEN"
 
@@ -338,14 +344,7 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
     }
   }
 
-  function parseAdvertisedServices(
-    items: Array<{
-      name: unknown
-      capabilities: unknown
-      priority: unknown
-      httpHeaders: unknown
-    }>
-  ) {
+  function parseAdvertisedServices(items: unknown[]) {
     interface Service {
       name: string
       capabilities?: string[]
@@ -359,8 +358,10 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
     const services: Service[] = []
     const topics: Topic[] = []
 
-    if (!Array.isArray(items)) throw "BAD_REQUEST"
-    for (const {name, capabilities, priority, httpHeaders} of items) {
+    for (const item of items) {
+      if (typeof item != 'object' || item == null) throw 'BAD_REQUEST'
+      assertRecord(item)
+      const {name, capabilities, priority, httpHeaders} = item
       if (typeof name != "string") throw "BAD_REQUEST"
       if (typeof capabilities != "undefined" && !Array.isArray(capabilities)) throw "BAD_REQUEST"
       if (isPubSub(name)) {
@@ -399,6 +400,7 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
   }
 
   function handleEndpointStatusRequest(msg: Message) {
+    if (!Array.isArray(msg.header.endpointIds)) throw 'BAD_REQUEST'
     endpoint.send({
       header: {
         id: msg.header.id,
@@ -409,6 +411,7 @@ function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
   }
 
   function handleEndpointWaitRequest(msg: Message) {
+    if (typeof msg.header.endpointId != 'string') throw 'BAD_REQUEST'
     const target = endpoints.get(msg.header.endpointId)
     if (!target) throw "ENDPOINT_NOT_FOUND"
     if (target.waiters.find(x => x.endpointId == endpointId)) throw "ALREADY_WAITING"

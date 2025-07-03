@@ -23,7 +23,7 @@ export function remove(endpoint: Endpoint) {
   }
 }
 
-export function find(name: string, requiredCapabilities: string[]|null) {
+export function find(name: string, requiredCapabilities: string[]|undefined) {
   const subscribers = registry.get(name)
   if (subscribers) {
     const list = Array.from(subscribers)

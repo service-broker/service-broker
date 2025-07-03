@@ -1,14 +1,14 @@
 import { Connection } from "./websocket.js";
 
 export interface Message {
-  header: any
+  header: Record<string, unknown>
   payload?: string|Buffer
 }
 
 export interface Endpoint {
   id: string
   isAlive: boolean
-  waiters: {endpointId: string, responseId: number}[]
+  waiters: {endpointId: string, responseId: unknown}[]
   send(m: Message): void
   keepAlive(): void
 }
