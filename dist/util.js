@@ -68,6 +68,12 @@ export function pTimeout(promise, millis) {
 export function generateId() {
     return Math.random().toString(36).slice(2);
 }
+export function getClientIp(req, trustProxy) {
+    if (!req.socket.remoteAddress)
+        throw "remoteAddress is null";
+    const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
+    return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - trustProxy)[0];
+}
 export class StatsCounter {
     constructor() {
         this.map = {};

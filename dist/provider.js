@@ -1,8 +1,5 @@
 const registry = new Map();
 const endpoints = new Set();
-export function has(endpoint) {
-    return endpoints.has(endpoint);
-}
 export function add(endpoint, name, capabilities, priority, httpHeaders) {
     let list = registry.get(name);
     if (!list)
@@ -26,8 +23,12 @@ export function remove(endpoint) {
         endpoints.delete(endpoint);
         for (const [name, providers] of registry) {
             const filtered = providers.filter(x => x.endpoint != endpoint);
-            if (filtered.length != providers.length)
-                registry.set(name, filtered);
+            if (filtered.length != providers.length) {
+                if (filtered.length)
+                    registry.set(name, filtered);
+                else
+                    registry.delete(name);
+            }
         }
     }
 }
@@ -51,11 +52,6 @@ export function status() {
             priority
         }))
     }));
-}
-export function cleanup() {
-    for (const [name, providers] of registry)
-        if (providers.length == 0)
-            registry.delete(name);
 }
 export const debug = {
     registry,

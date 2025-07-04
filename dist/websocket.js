@@ -19,13 +19,11 @@ export function connect(address, options) {
 }
 function makeConnection(ws, request) {
     return {
-        request,
+        request: request ?? { connectUrl: ws.url },
         message$: rxjs.fromEvent(ws, 'message', (event) => event),
-        pong$: rxjs.fromEvent(ws, 'pong', (event) => event),
         error$: rxjs.fromEvent(ws, 'error', (event) => event),
         close$: rxjs.fromEvent(ws, 'close', (event) => event),
         send: ws.send.bind(ws),
-        ping: ws.ping.bind(ws),
         close: ws.close.bind(ws),
         terminate: ws.terminate.bind(ws),
         keepAlive: (interval, timeout) => rxjs.interval(interval).pipe(rxjs.switchMap(() => {

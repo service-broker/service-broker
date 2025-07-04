@@ -1,8 +1,23 @@
-export function makeEndpoint(id, ws) {
+import http from "http";
+import * as rxjs from "rxjs";
+import config from "./config.js";
+import { generateId, getClientIp, messageFromBuffer, messageFromString } from "./util.js";
+export function makeEndpoint(ws) {
     return {
-        id,
-        isAlive: true,
-        waiters: [],
+        id: generateId(),
+        clientIp: ws.request instanceof http.IncomingMessage ? getClientIp(ws.request, config.trustProxy) : ws.request.connectUrl,
+        isProvider$: new rxjs.BehaviorSubject(false),
+        waiters: new Map(),
+        message$: ws.message$.pipe(rxjs.concatMap(event => rxjs.defer(() => {
+            if (typeof event.data == 'string')
+                return rxjs.of(messageFromString(event.data));
+            if (Buffer.isBuffer(event.data))
+                return rxjs.of(messageFromBuffer(event.data));
+            return rxjs.throwError(() => "Unexpected payload type");
+        }).pipe(rxjs.catchError(err => {
+            console.error(String(err));
+            return rxjs.EMPTY;
+        })))),
         send(msg) {
             const headerStr = JSON.stringify(msg.header);
             if (msg.payload) {
@@ -24,12 +39,6 @@ export function makeEndpoint(id, ws) {
             else {
                 ws.send(headerStr);
             }
-        },
-        keepAlive() {
-            if (!this.isAlive)
-                return ws.terminate();
-            this.isAlive = false;
-            ws.ping();
         }
     };
 }

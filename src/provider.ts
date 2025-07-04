@@ -10,10 +10,6 @@ interface Provider {
 const registry = new Map<string, Provider[]>()
 const endpoints = new Set<Endpoint>()
 
-export function has(endpoint: Endpoint) {
-  return endpoints.has(endpoint)
-}
-
 export function add(
   endpoint: Endpoint,
   name: string,
@@ -41,8 +37,10 @@ export function remove(endpoint: Endpoint) {
     endpoints.delete(endpoint)
     for (const [name, providers] of registry) {
       const filtered = providers.filter(x => x.endpoint != endpoint)
-      if (filtered.length != providers.length)
-        registry.set(name, filtered)
+      if (filtered.length != providers.length) {
+        if (filtered.length) registry.set(name, filtered)
+        else registry.delete(name)
+      }
     }
   }
 }
@@ -68,12 +66,6 @@ export function status() {
       priority
     }))
   }))
-}
-
-export function cleanup() {
-  for (const [name, providers] of registry)
-    if (providers.length == 0)
-      registry.delete(name)
 }
 
 export const debug = {

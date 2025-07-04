@@ -3,13 +3,11 @@ import * as rxjs from "rxjs"
 import { type ClientOptions, CloseEvent, ErrorEvent, MessageEvent, type ServerOptions, WebSocket, WebSocketServer } from "ws"
 
 export interface Connection {
-  request?: IncomingMessage
+  request: IncomingMessage | {connectUrl: string}
   message$: rxjs.Observable<MessageEvent>
-  pong$: rxjs.Observable<Event>
   error$: rxjs.Observable<ErrorEvent>
   close$: rxjs.Observable<CloseEvent>
   send: WebSocket['send']
-  ping: WebSocket['ping']
   close: WebSocket['close']
   terminate: WebSocket['terminate']
   keepAlive(interval: number, timeout: number): rxjs.Observable<never>
@@ -47,13 +45,11 @@ export function connect(address: string | URL, options?: ClientOptions | ClientR
 
 function makeConnection(ws: WebSocket, request?: IncomingMessage): Connection {
   return {
-    request,
+    request: request ?? {connectUrl: ws.url},
     message$: rxjs.fromEvent(ws, 'message', (event: MessageEvent) => event),
-    pong$: rxjs.fromEvent(ws, 'pong', (event: Event) => event),
     error$: rxjs.fromEvent(ws, 'error', (event: ErrorEvent) => event),
     close$: rxjs.fromEvent(ws, 'close', (event: CloseEvent) => event),
     send: ws.send.bind(ws),
-    ping: ws.ping.bind(ws),
     close: ws.close.bind(ws),
     terminate: ws.terminate.bind(ws),
     keepAlive: (interval, timeout) => rxjs.interval(interval).pipe(

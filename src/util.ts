@@ -1,4 +1,5 @@
 import assert from "assert";
+import http from "http";
 import Stream from "stream";
 import { Message } from "./endpoint.js";
 
@@ -76,6 +77,12 @@ export function pTimeout<T>(promise: Promise<T>, millis: number): Promise<T> {
 
 export function generateId() {
   return Math.random().toString(36).slice(2)
+}
+
+export function getClientIp(req: http.IncomingMessage, trustProxy: number) {
+  if (!req.socket.remoteAddress) throw "remoteAddress is null"
+  const xForwardedFor = req.headers['x-forwarded-for'] ? (<string>req.headers['x-forwarded-for']).split(/\s*,\s*/) : [];
+  return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1-trustProxy)[0]
 }
 
 export class StatsCounter {

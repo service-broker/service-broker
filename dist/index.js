@@ -11,7 +11,7 @@ import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, assertRecord, generateId, getStream, immediate, messageFromBuffer, messageFromString, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
 import * as ws from "./websocket.js";
 const shutdown$ = new rxjs.Subject();
 const app = immediate(() => {
@@ -56,14 +56,6 @@ rxjs.merge(rxjs.iif(() => httpServer != null, makeWebSocketServer(httpServer), r
     appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n")
         .then(() => basicStats.clear())
         .catch(console.error);
-})), rxjs.interval(config.providerKeepAlive).pipe(rxjs.tap(() => {
-    for (const endpoint of endpoints.values())
-        if (providerRegistry.has(endpoint))
-            endpoint.keepAlive();
-})), rxjs.interval(config.nonProviderKeepAlive).pipe(rxjs.tap(() => {
-    for (const endpoint of endpoints.values())
-        if (!providerRegistry.has(endpoint))
-            endpoint.keepAlive();
 })), rxjs.fromEvent(process, 'uncaughtException').pipe(rxjs.tap(console.error))).pipe(rxjs.takeUntil(shutdown$), rxjs.finalize(() => {
     httpServer?.close();
     httpsServer?.close();
@@ -82,7 +74,7 @@ async function onHttpPost(req, res) {
             return;
         }
         header.service = { name: service, capabilities };
-        header.ip = getClientIp(req);
+        header.ip = getClientIp(req, config.trustProxy);
         if (req.get("content-type"))
             header.contentType = req.get("content-type");
         //update stats
@@ -135,12 +127,6 @@ async function onHttpPost(req, res) {
         res.status(500).end(err instanceof Error ? err.message : String(err));
     }
 }
-function getClientIp(req) {
-    if (!req.socket.remoteAddress)
-        throw "remoteAddress is null";
-    const xForwardedFor = req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(/\s*,\s*/) : [];
-    return xForwardedFor.concat(req.socket.remoteAddress.replace(/^::ffff:/, '')).slice(-1 - config.trustProxy)[0];
-}
 function makeWebSocketServer(server) {
     return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.mergeMap(handleConnection)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
 }
@@ -156,206 +142,196 @@ function isPubSub(serviceName) {
     return /^#/.test(serviceName);
 }
 function handleConnection(con) {
-    const ip = getClientIp(con.request);
-    const endpointId = generateId();
-    const endpoint = makeEndpoint(endpointId, con);
-    endpoints.set(endpointId, endpoint);
-    return rxjs.merge(con.message$.pipe(rxjs.concatMap(async (event) => {
-        let msg;
-        try {
-            if (typeof event.data == 'string')
-                msg = messageFromString(event.data);
-            else if (Buffer.isBuffer(event.data))
-                msg = messageFromBuffer(event.data);
-            else
-                throw new Error("Unexpected payload type");
-        }
-        catch (err) {
-            console.error(String(err));
-            return;
-        }
-        try {
-            if (nonProviderRateLimiter && !providerRegistry.has(endpoint)) {
-                await nonProviderRateLimiter.consume(endpointId);
-            }
-            if (msg.header.to)
-                handleForward(msg);
-            else if (msg.header.service)
-                handleServiceRequest(msg, ip);
-            else if (msg.header.type == "SbAdvertiseRequest")
-                handleAdvertiseRequest(msg);
-            else if (msg.header.type == "SbStatusRequest")
-                handleStatusRequest(msg);
-            else if (msg.header.type == "SbEndpointStatusRequest")
-                handleEndpointStatusRequest(msg);
-            else if (msg.header.type == "SbEndpointWaitRequest")
-                handleEndpointWaitRequest(msg);
-            else if (msg.header.type == "SbCleanupRequest")
-                handleCleanupRequest(msg);
-            else
-                throw "Don't know what to do with message";
-        }
-        catch (err) {
-            if (msg.header.id) {
-                endpoint.send({
-                    header: {
-                        id: msg.header.id,
-                        error: err instanceof Error ? err.message : String(err)
-                    }
-                });
-            }
-            else {
-                console.error(ip, endpointId, String(err), msg.header);
-            }
-        }
-    })), con.pong$.pipe(rxjs.tap(() => endpoint.isAlive = true))).pipe(rxjs.takeUntil(con.close$.pipe(rxjs.tap(() => {
-        for (const waiter of endpoint.waiters) {
-            endpoints.get(waiter.endpointId)?.send({
+    const endpoint = makeEndpoint(con);
+    endpoints.set(endpoint.id, endpoint);
+    return rxjs.merge(endpoint.message$.pipe(rxjs.concatMap(msg => processMessage(msg, endpoint))), endpoint.isProvider$.pipe(rxjs.distinctUntilChanged(), rxjs.switchMap(isProvider => con.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, 10 * 1000)), rxjs.catchError(() => {
+        console.info("Ping-pong timeout", {
+            endpointId: endpoint.id,
+            clientIp: endpoint.clientIp,
+            isProvider: endpoint.isProvider$.value
+        });
+        con.terminate();
+        return rxjs.EMPTY;
+    }))).pipe(rxjs.takeUntil(con.close$.pipe(rxjs.tap(() => {
+        for (const [waiterEndpointId, { responseId }] of endpoint.waiters) {
+            endpoints.get(waiterEndpointId)?.send({
                 header: {
-                    id: waiter.responseId,
+                    id: responseId,
                     type: "SbEndpointWaitResponse",
-                    endpointId
+                    endpointId: endpoint.id
                 }
             });
         }
     }))), rxjs.finalize(() => {
-        endpoints.delete(endpointId);
+        endpoints.delete(endpoint.id);
         providerRegistry.remove(endpoint);
         subscriberRegistry.remove(endpoint);
     }));
-    function handleForward(msg) {
-        if (typeof msg.header.to != 'string')
-            throw 'BAD_REQUEST';
-        const endpoint = endpoints.get(msg.header.to);
-        if (endpoint) {
-            msg.header.from = endpointId;
-            endpoint.send(msg);
-            return;
+}
+async function processMessage(msg, endpoint) {
+    try {
+        if (nonProviderRateLimiter && !endpoint.isProvider$.value) {
+            await nonProviderRateLimiter.consume(endpoint.id);
         }
-        const pending = pendingResponse.get(msg.header.to);
-        if (pending) {
-            pending(msg);
-            return;
-        }
-        throw "ENDPOINT_NOT_FOUND";
+        if (msg.header.to)
+            handleForward(msg, endpoint);
+        else if (msg.header.service)
+            handleServiceRequest(msg, endpoint);
+        else if (msg.header.type == "SbAdvertiseRequest")
+            handleAdvertiseRequest(msg, endpoint);
+        else if (msg.header.type == "SbStatusRequest")
+            handleStatusRequest(msg, endpoint);
+        else if (msg.header.type == "SbEndpointStatusRequest")
+            handleEndpointStatusRequest(msg, endpoint);
+        else if (msg.header.type == "SbEndpointWaitRequest")
+            handleEndpointWaitRequest(msg, endpoint);
+        else
+            throw "Don't know what to do with message";
     }
-    function handleServiceRequest(msg, ip) {
-        if (typeof msg.header.service != 'object' || msg.header.service == null)
-            throw 'BAD_REQUEST';
-        assertRecord(msg.header.service);
-        if (typeof msg.header.service.name != 'string')
-            throw 'BAD_REQUEST';
-        if (typeof msg.header.service.capabilities != 'undefined' && !Array.isArray(msg.header.service.capabilities))
-            throw 'BAD_REQUEST';
-        basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
-        msg.header.from = endpointId;
-        msg.header.ip = ip;
-        if (isPubSub(msg.header.service.name)) {
-            const subscribers = subscriberRegistry.find(msg.header.service.name, msg.header.service.capabilities);
-            for (const { endpoint } of subscribers)
-                endpoint.send(msg);
-        }
-        else {
-            const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
-            if (providers.length)
-                pickRandom(providers).endpoint.send(msg);
-            else
-                throw "NO_PROVIDER " + msg.header.service.name;
-        }
-    }
-    function handleAdvertiseRequest(msg) {
-        if (!Array.isArray(msg.header.services))
-            throw 'BAD_REQUEST';
-        const { services, topics } = parseAdvertisedServices(msg.header.services);
-        if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken)
-            throw "FORBIDDEN";
-        providerRegistry.remove(endpoint);
-        for (const service of services)
-            providerRegistry.add(endpoint, service.name, service.capabilities, service.priority ?? 0, service.httpHeaders);
-        subscriberRegistry.remove(endpoint);
-        for (const topic of topics)
-            subscriberRegistry.add(endpoint, topic.name, topic.capabilities);
+    catch (err) {
         if (msg.header.id) {
             endpoint.send({
                 header: {
                     id: msg.header.id,
-                    type: "SbAdvertiseResponse"
+                    error: err instanceof Error ? err.message : String(err)
                 }
             });
         }
-    }
-    function parseAdvertisedServices(items) {
-        const services = [];
-        const topics = [];
-        for (const item of items) {
-            if (typeof item != 'object' || item == null)
-                throw 'BAD_REQUEST';
-            assertRecord(item);
-            const { name, capabilities, priority, httpHeaders } = item;
-            if (typeof name != "string")
-                throw "BAD_REQUEST";
-            if (typeof capabilities != "undefined" && !Array.isArray(capabilities))
-                throw "BAD_REQUEST";
-            if (isPubSub(name)) {
-                topics.push({ name, capabilities });
-            }
-            else {
-                if (typeof priority != "undefined" && typeof priority != "number")
-                    throw "BAD_REQUEST";
-                if (typeof httpHeaders != "undefined" && !Array.isArray(httpHeaders))
-                    throw "BAD_REQUEST";
-                services.push({ name, capabilities, priority, httpHeaders });
-            }
-        }
-        return { services, topics };
-    }
-    function handleStatusRequest(msg) {
-        const status = {
-            numEndpoints: endpoints.size,
-            providerRegistry: providerRegistry.status(),
-            subscriberRegistry: subscriberRegistry.status(),
-        };
-        if (msg.header.id) {
-            endpoint.send({
-                header: {
-                    id: msg.header.id,
-                    type: "SbStatusResponse"
-                },
-                payload: JSON.stringify(status)
-            });
-        }
         else {
-            console.log("numEndpoints:", status.numEndpoints);
-            for (const entry of status.providerRegistry)
-                console.log(entry.service, entry.providers);
-            for (const entry of status.subscriberRegistry)
-                console.log(entry.topic, entry.subscribers);
+            console.error(endpoint.clientIp, endpoint.id, String(err), msg.header);
         }
     }
-    function handleEndpointStatusRequest(msg) {
-        if (!Array.isArray(msg.header.endpointIds))
-            throw 'BAD_REQUEST';
+}
+function handleForward(msg, fromEndpoint) {
+    if (typeof msg.header.to != 'string')
+        throw 'BAD_REQUEST';
+    const endpoint = endpoints.get(msg.header.to);
+    if (endpoint) {
+        msg.header.from = fromEndpoint.id;
+        endpoint.send(msg);
+        return;
+    }
+    const pending = pendingResponse.get(msg.header.to);
+    if (pending) {
+        pending(msg);
+        return;
+    }
+    throw "ENDPOINT_NOT_FOUND";
+}
+function handleServiceRequest(msg, endpoint) {
+    if (typeof msg.header.service != 'object' || msg.header.service == null)
+        throw 'BAD_REQUEST';
+    assertRecord(msg.header.service);
+    if (typeof msg.header.service.name != 'string')
+        throw 'BAD_REQUEST';
+    if (typeof msg.header.service.capabilities != 'undefined' && !Array.isArray(msg.header.service.capabilities))
+        throw 'BAD_REQUEST';
+    basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
+    msg.header.from = endpoint.id;
+    msg.header.ip = endpoint.clientIp;
+    if (isPubSub(msg.header.service.name)) {
+        const subscribers = subscriberRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+        for (const { endpoint } of subscribers)
+            endpoint.send(msg);
+    }
+    else {
+        const providers = providerRegistry.find(msg.header.service.name, msg.header.service.capabilities);
+        if (providers.length)
+            pickRandom(providers).endpoint.send(msg);
+        else
+            throw "NO_PROVIDER " + msg.header.service.name;
+    }
+}
+function handleAdvertiseRequest(msg, endpoint) {
+    if (!Array.isArray(msg.header.services))
+        throw 'BAD_REQUEST';
+    const { services, topics } = parseAdvertisedServices(msg.header.services);
+    if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken)
+        throw "FORBIDDEN";
+    providerRegistry.remove(endpoint);
+    for (const service of services)
+        providerRegistry.add(endpoint, service.name, service.capabilities, service.priority ?? 0, service.httpHeaders);
+    subscriberRegistry.remove(endpoint);
+    for (const topic of topics)
+        subscriberRegistry.add(endpoint, topic.name, topic.capabilities);
+    endpoint.isProvider$.next(services.length > 0);
+    if (msg.header.id) {
         endpoint.send({
             header: {
                 id: msg.header.id,
-                type: "SbEndpointStatusResponse",
-                endpointStatuses: msg.header.endpointIds.map((id) => endpoints.has(id))
+                type: "SbAdvertiseResponse"
             }
         });
     }
-    function handleEndpointWaitRequest(msg) {
-        if (typeof msg.header.endpointId != 'string')
+}
+function parseAdvertisedServices(items) {
+    const services = [];
+    const topics = [];
+    for (const item of items) {
+        if (typeof item != 'object' || item == null)
             throw 'BAD_REQUEST';
-        const target = endpoints.get(msg.header.endpointId);
-        if (!target)
-            throw "ENDPOINT_NOT_FOUND";
-        if (target.waiters.find(x => x.endpointId == endpointId))
-            throw "ALREADY_WAITING";
-        target.waiters.push({ endpointId, responseId: msg.header.id });
+        assertRecord(item);
+        const { name, capabilities, priority, httpHeaders } = item;
+        if (typeof name != "string")
+            throw "BAD_REQUEST";
+        if (typeof capabilities != "undefined" && !Array.isArray(capabilities))
+            throw "BAD_REQUEST";
+        if (isPubSub(name)) {
+            topics.push({ name, capabilities });
+        }
+        else {
+            if (typeof priority != "undefined" && typeof priority != "number")
+                throw "BAD_REQUEST";
+            if (typeof httpHeaders != "undefined" && !Array.isArray(httpHeaders))
+                throw "BAD_REQUEST";
+            services.push({ name, capabilities, priority, httpHeaders });
+        }
     }
-    function handleCleanupRequest(msg) {
-        providerRegistry.cleanup();
+    return { services, topics };
+}
+function handleStatusRequest(msg, endpoint) {
+    const status = {
+        numEndpoints: endpoints.size,
+        providerRegistry: providerRegistry.status(),
+        subscriberRegistry: subscriberRegistry.status(),
+    };
+    if (msg.header.id) {
+        endpoint.send({
+            header: {
+                id: msg.header.id,
+                type: "SbStatusResponse"
+            },
+            payload: JSON.stringify(status)
+        });
     }
+    else {
+        console.log("numEndpoints:", status.numEndpoints);
+        for (const entry of status.providerRegistry)
+            console.log(entry.service, entry.providers);
+        for (const entry of status.subscriberRegistry)
+            console.log(entry.topic, entry.subscribers);
+    }
+}
+function handleEndpointStatusRequest(msg, endpoint) {
+    if (!Array.isArray(msg.header.endpointIds))
+        throw 'BAD_REQUEST';
+    endpoint.send({
+        header: {
+            id: msg.header.id,
+            type: "SbEndpointStatusResponse",
+            endpointStatuses: msg.header.endpointIds.map((id) => endpoints.has(id))
+        }
+    });
+}
+function handleEndpointWaitRequest(msg, waiterEndpoint) {
+    if (typeof msg.header.endpointId != 'string')
+        throw 'BAD_REQUEST';
+    const target = endpoints.get(msg.header.endpointId);
+    if (!target)
+        throw "ENDPOINT_NOT_FOUND";
+    if (target.waiters.has(waiterEndpoint.id))
+        throw "ALREADY_WAITING";
+    target.waiters.set(waiterEndpoint.id, { responseId: msg.header.id });
 }
 export const debug = {
     shutdown$
