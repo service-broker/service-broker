@@ -32,3 +32,4 @@ function makeConnection(ws, request) {
         }))
     };
 }
+//# sourceMappingURL=websocket.js.map

@@ -35,6 +35,9 @@ export default {
     exposedHeaders: "x-service-response-header",
     maxAge: 86400
   })),
+
+  maxHeaderSize: 4096,
+
   textMimes: [
     "text/*",
     "application/json",

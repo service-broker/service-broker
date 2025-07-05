@@ -41,3 +41,4 @@ export function status() {
 export const debug = {
     registry
 };
+//# sourceMappingURL=subscriber.js.map

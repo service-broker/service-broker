@@ -1,44 +1,100 @@
+import assert from "assert";
 import http from "http";
 import * as rxjs from "rxjs";
 import config from "./config.js";
-import { generateId, getClientIp, messageFromBuffer, messageFromString } from "./util.js";
+import { assertRecord, generateId, getClientIp } from "./util.js";
 export function makeEndpoint(ws) {
+    const id = generateId();
+    const clientIp = ws.request instanceof http.IncomingMessage ? getClientIp(ws.request, config.trustProxy) : ws.request.connectUrl;
+    const isProvider$ = new rxjs.BehaviorSubject(false);
     return {
-        id: generateId(),
-        clientIp: ws.request instanceof http.IncomingMessage ? getClientIp(ws.request, config.trustProxy) : ws.request.connectUrl,
-        isProvider$: new rxjs.BehaviorSubject(false),
+        id,
+        clientIp,
+        isProvider$,
         waiters: new Map(),
-        message$: ws.message$.pipe(rxjs.concatMap(event => rxjs.defer(() => {
-            if (typeof event.data == 'string')
-                return rxjs.of(messageFromString(event.data));
-            if (Buffer.isBuffer(event.data))
-                return rxjs.of(messageFromBuffer(event.data));
-            return rxjs.throwError(() => "Unexpected payload type");
-        }).pipe(rxjs.catchError(err => {
-            console.error(String(err));
+        message$: ws.message$.pipe(rxjs.concatMap(event => {
+            try {
+                return rxjs.of(deserialize(event.data));
+            }
+            catch (err) {
+                console.error(String(err));
+                return rxjs.EMPTY;
+            }
+        })),
+        keepAlive$: isProvider$.pipe(rxjs.distinctUntilChanged(), rxjs.switchMap(isProvider => ws.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, 10 * 1000).pipe(rxjs.catchError(() => {
+            console.info('Ping-pong timeout', isProvider ? 'provider' : 'client', id, clientIp);
+            ws.terminate();
             return rxjs.EMPTY;
         })))),
+        close$: ws.close$,
         send(msg) {
-            const headerStr = JSON.stringify(msg.header);
-            if (msg.payload) {
-                if (typeof msg.payload == "string") {
-                    ws.send(headerStr + '\n' + msg.payload);
-                }
-                else if (Buffer.isBuffer(msg.payload)) {
-                    const headerLen = Buffer.byteLength(headerStr);
-                    const tmp = Buffer.allocUnsafe(headerLen + 1 + msg.payload.length);
-                    tmp.write(headerStr);
-                    tmp[headerLen] = 10;
-                    msg.payload.copy(tmp, headerLen + 1);
-                    ws.send(tmp);
-                }
-                else {
-                    throw new Error("Unexpected");
-                }
-            }
-            else {
-                ws.send(headerStr);
-            }
+            ws.send(serialize(msg));
+        },
+        debug: {
+            connection: ws
         }
     };
 }
+function serialize({ header, payload }) {
+    const headerStr = JSON.stringify(header);
+    if (payload != null) {
+        if (typeof payload == "string") {
+            return headerStr + '\n' + payload;
+        }
+        else if (Buffer.isBuffer(payload)) {
+            const headerLen = Buffer.byteLength(headerStr);
+            const buffer = Buffer.allocUnsafe(headerLen + 1 + payload.length);
+            buffer.write(headerStr);
+            buffer[headerLen] = 10;
+            payload.copy(buffer, headerLen + 1);
+            return buffer;
+        }
+        else {
+            throw new Error("Unexpected payload type");
+        }
+    }
+    else {
+        return headerStr;
+    }
+}
+function deserialize(data) {
+    if (typeof data == 'string')
+        return messageFromString(data);
+    else if (Buffer.isBuffer(data))
+        return messageFromBuffer(data);
+    else
+        throw new Error("Unexpected payload type");
+}
+function messageFromString(str) {
+    if (str[0] != '{')
+        throw new Error("Message doesn't have JSON header");
+    const index = str.slice(0, config.maxHeaderSize).indexOf('\n');
+    const headerStr = (index != -1) ? str.slice(0, index) : str;
+    const payload = (index != -1) ? str.slice(index + 1) : undefined;
+    try {
+        const header = JSON.parse(headerStr);
+        assert(typeof header == 'object' && header != null);
+        assertRecord(header);
+        return { header, payload };
+    }
+    catch (err) {
+        throw new Error("Failed to parse message header");
+    }
+}
+function messageFromBuffer(buf) {
+    if (buf[0] != 123)
+        throw new Error("Message doesn't have JSON header");
+    const index = buf.subarray(0, config.maxHeaderSize).indexOf('\n');
+    const headerStr = (index != -1) ? buf.subarray(0, index).toString() : buf.toString();
+    const payload = (index != -1) ? buf.subarray(index + 1) : undefined;
+    try {
+        const header = JSON.parse(headerStr);
+        assert(typeof header == 'object' && header != null);
+        assertRecord(header);
+        return { header, payload };
+    }
+    catch (err) {
+        throw new Error("Failed to parse message header");
+    }
+}
+//# sourceMappingURL=endpoint.js.map

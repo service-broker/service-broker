@@ -28,6 +28,7 @@ export default {
         exposedHeaders: "x-service-response-header",
         maxAge: 86400
     })),
+    maxHeaderSize: 4096,
     textMimes: [
         "text/*",
         "application/json",
@@ -46,3 +47,4 @@ export default {
         interval: 5 * 60 * 1000
     },
 };
+//# sourceMappingURL=config.js.map

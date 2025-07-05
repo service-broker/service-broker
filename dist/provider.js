@@ -57,3 +57,4 @@ export const debug = {
     registry,
     endpoints
 };
+//# sourceMappingURL=provider.js.map

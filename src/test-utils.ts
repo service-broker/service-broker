@@ -1,8 +1,7 @@
 import assert from "assert/strict";
 import util from "util";
 import { green, red, yellowBright } from "yoctocolors";
-import { debug as indexDebug } from "./index.js";
-import { assertRecord, lazy } from "./util.js";
+import { assertRecord, lazy, shutdown$ } from "./util.js";
 
 interface Test {
   name: string
@@ -53,6 +52,14 @@ export function expect(actual: unknown) {
         }
         else if (expected instanceof ExpectUnion) {
           assert(expected.values.includes(actual), print('!expected.includes(actual)', actual, expected.values))
+        }
+        else if (expected instanceof ExpectObjectHaving) {
+          assert(typeof actual == 'object' && actual !== null, print('!isObject', actual))
+          assertRecord(actual)
+          for (const prop in expected.entries) {
+            assert(prop in actual, print(`Missing prop '${prop}'`, actual, expected.entries))
+            expect(actual[prop]).toEqual(expected.entries[prop])
+          }
         }
         else if (expected instanceof Set) {
           assert.deepStrictEqual(actual, expected)
@@ -150,11 +157,11 @@ export function mockFunc(): MockFunc {
 }
 
 class ExpectType {
-  constructor(readonly type: 'string'|'number') {
+  constructor(readonly type: 'string'|'number'|'object') {
   }
 }
 
-export function valueOfType(type: 'string'|'number') {
+export function valueOfType(type: 'string'|'number'|'object') {
   return new ExpectType(type)
 }
 
@@ -165,6 +172,15 @@ class ExpectUnion {
 
 export function oneOf(...values: (string|number|undefined|null)[]) {
   return new ExpectUnion(values)
+}
+
+class ExpectObjectHaving {
+  constructor(readonly entries: Record<string, unknown>) {
+  }
+}
+
+export function objectHaving(entries: Record<string, unknown>) {
+  return new ExpectObjectHaving(entries)
 }
 
 export async function run() {
@@ -187,6 +203,6 @@ export async function run() {
   } catch (err) {
     console.error(err)
   } finally {
-    indexDebug.shutdown$.next()
+    shutdown$.next()
   }
 }

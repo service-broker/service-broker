@@ -11,9 +11,8 @@ import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom, shutdown$ } from "./util.js";
 import * as ws from "./websocket.js";
-const shutdown$ = new rxjs.Subject();
 const app = immediate(() => {
     const app = express();
     app.set("trust proxy", config.trustProxy);
@@ -128,7 +127,7 @@ async function onHttpPost(req, res) {
     }
 }
 function makeWebSocketServer(server) {
-    return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.mergeMap(handleConnection)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
+    return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.map(makeEndpoint), rxjs.mergeMap(handleConnect)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
 }
 function verifyClient(info) {
     if (info.origin && config.corsOptions.origin instanceof RegExp) {
@@ -141,18 +140,9 @@ function verifyClient(info) {
 function isPubSub(serviceName) {
     return /^#/.test(serviceName);
 }
-function handleConnection(con) {
-    const endpoint = makeEndpoint(con);
+function handleConnect(endpoint) {
     endpoints.set(endpoint.id, endpoint);
-    return rxjs.merge(endpoint.message$.pipe(rxjs.concatMap(msg => processMessage(msg, endpoint))), endpoint.isProvider$.pipe(rxjs.distinctUntilChanged(), rxjs.switchMap(isProvider => con.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, 10 * 1000)), rxjs.catchError(() => {
-        console.info("Ping-pong timeout", {
-            endpointId: endpoint.id,
-            clientIp: endpoint.clientIp,
-            isProvider: endpoint.isProvider$.value
-        });
-        con.terminate();
-        return rxjs.EMPTY;
-    }))).pipe(rxjs.takeUntil(con.close$.pipe(rxjs.tap(() => {
+    return rxjs.merge(endpoint.message$.pipe(rxjs.concatMap(msg => processMessage(msg, endpoint))), endpoint.keepAlive$).pipe(rxjs.takeUntil(endpoint.close$.pipe(rxjs.tap(() => {
         for (const [waiterEndpointId, { responseId }] of endpoint.waiters) {
             endpoints.get(waiterEndpointId)?.send({
                 header: {
@@ -333,6 +323,4 @@ function handleEndpointWaitRequest(msg, waiterEndpoint) {
         throw "ALREADY_WAITING";
     target.waiters.set(waiterEndpoint.id, { responseId: msg.header.id });
 }
-export const debug = {
-    shutdown$
-};
+//# sourceMappingURL=index.js.map

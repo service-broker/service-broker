@@ -1,8 +1,7 @@
 import assert from "assert/strict";
 import util from "util";
 import { green, red, yellowBright } from "yoctocolors";
-import { debug as indexDebug } from "./index.js";
-import { assertRecord, lazy } from "./util.js";
+import { assertRecord, lazy, shutdown$ } from "./util.js";
 const suites = [];
 const scheduleRun = lazy(() => setTimeout(run, 0));
 export function describe(suiteName, setup) {
@@ -30,6 +29,14 @@ export function expect(actual) {
                 }
                 else if (expected instanceof ExpectUnion) {
                     assert(expected.values.includes(actual), print('!expected.includes(actual)', actual, expected.values));
+                }
+                else if (expected instanceof ExpectObjectHaving) {
+                    assert(typeof actual == 'object' && actual !== null, print('!isObject', actual));
+                    assertRecord(actual);
+                    for (const prop in expected.entries) {
+                        assert(prop in actual, print(`Missing prop '${prop}'`, actual, expected.entries));
+                        expect(actual[prop]).toEqual(expected.entries[prop]);
+                    }
                 }
                 else if (expected instanceof Set) {
                     assert.deepStrictEqual(actual, expected);
@@ -136,6 +143,14 @@ class ExpectUnion {
 export function oneOf(...values) {
     return new ExpectUnion(values);
 }
+class ExpectObjectHaving {
+    constructor(entries) {
+        this.entries = entries;
+    }
+}
+export function objectHaving(entries) {
+    return new ExpectObjectHaving(entries);
+}
 export async function run() {
     const suiteName = process.argv[2];
     const testName = process.argv[3];
@@ -161,6 +176,7 @@ export async function run() {
         console.error(err);
     }
     finally {
-        indexDebug.shutdown$.next();
+        shutdown$.next();
     }
 }
+//# sourceMappingURL=test-utils.js.map

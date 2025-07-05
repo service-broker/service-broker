@@ -11,11 +11,9 @@ import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom, shutdown$ } from "./util.js";
 import * as ws from "./websocket.js";
 
-
-const shutdown$ = new rxjs.Subject<void>()
 
 const app = immediate(() => {
   const app = express()
@@ -170,7 +168,8 @@ function makeWebSocketServer(server: typeof httpServer) {
     rxjs.exhaustMap(server =>
       rxjs.merge(
         server.connection$.pipe(
-          rxjs.mergeMap(handleConnection)
+          rxjs.map(makeEndpoint),
+          rxjs.mergeMap(handleConnect)
         ),
         server.error$.pipe(
           rxjs.tap(event => console.error(event.error))
@@ -194,31 +193,16 @@ function isPubSub(serviceName: string) {
   return /^#/.test(serviceName)
 }
 
-function handleConnection(con: ws.Connection): rxjs.Observable<unknown> {
-  const endpoint = makeEndpoint(con)
+function handleConnect(endpoint: Endpoint): rxjs.Observable<unknown> {
   endpoints.set(endpoint.id, endpoint)
   return rxjs.merge(
     endpoint.message$.pipe(
       rxjs.concatMap(msg => processMessage(msg, endpoint))
     ),
-    endpoint.isProvider$.pipe(
-      rxjs.distinctUntilChanged(),
-      rxjs.switchMap(isProvider =>
-        con.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, 10*1000)
-      ),
-      rxjs.catchError(() => {
-        console.info("Ping-pong timeout", {
-          endpointId: endpoint.id,
-          clientIp: endpoint.clientIp,
-          isProvider: endpoint.isProvider$.value
-        })
-        con.terminate()
-        return rxjs.EMPTY
-      })
-    )
+    endpoint.keepAlive$
   ).pipe(
     rxjs.takeUntil(
-      con.close$.pipe(
+      endpoint.close$.pipe(
         rxjs.tap(() => {
           for (const [waiterEndpointId, {responseId}] of endpoint.waiters) {
             endpoints.get(waiterEndpointId)?.send({
@@ -398,10 +382,4 @@ function handleEndpointWaitRequest(msg: Message, waiterEndpoint: Endpoint) {
   if (!target) throw "ENDPOINT_NOT_FOUND"
   if (target.waiters.has(waiterEndpoint.id)) throw "ALREADY_WAITING"
   target.waiters.set(waiterEndpoint.id, {responseId: msg.header.id})
-}
-
-
-
-export const debug = {
-  shutdown$
 }
