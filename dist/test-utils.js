@@ -24,19 +24,8 @@ export function expect(actual) {
         toEqual(expected, negate) {
             if (typeof expected == 'object' && expected !== null) {
                 assert(!negate, "Negation only available for primitives");
-                if (expected instanceof ExpectType) {
-                    assert(typeof actual == expected.type, print(`type != '${expected.type}'`, actual));
-                }
-                else if (expected instanceof ExpectUnion) {
-                    assert(expected.values.includes(actual), print('!expected.includes(actual)', actual, expected.values));
-                }
-                else if (expected instanceof ExpectObjectHaving) {
-                    assert(typeof actual == 'object' && actual !== null, print('!isObject', actual));
-                    assertRecord(actual);
-                    for (const prop in expected.entries) {
-                        assert(prop in actual, print(`Missing prop '${prop}'`, actual, expected.entries));
-                        expect(actual[prop]).toEqual(expected.entries[prop]);
-                    }
+                if (expected instanceof ValueValidator) {
+                    assert(expected.validate(actual) === undefined, 'valueValidator must return void');
                 }
                 else if (expected instanceof Set) {
                     assert.deepStrictEqual(actual, expected);
@@ -113,8 +102,8 @@ export function expect(actual) {
         }
     };
 }
-function print(expectation, actual, expected = print) {
-    return yellowBright(expectation)
+export function print(failure, actual, expected = print) {
+    return yellowBright(failure)
         + (expected == print ? '' : '\n' + red('EXPECT') + ' ' + util.inspect(expected))
         + '\n' + green('ACTUAL') + ' ' + util.inspect(actual);
 }
@@ -127,29 +116,23 @@ export function mockFunc() {
     };
     return func;
 }
-class ExpectType {
-    constructor(type) {
-        this.type = type;
+class ValueValidator {
+    constructor(validate) {
+        this.validate = validate;
     }
 }
-export function valueOfType(type) {
-    return new ExpectType(type);
-}
-class ExpectUnion {
-    constructor(values) {
-        this.values = values;
-    }
-}
-export function oneOf(...values) {
-    return new ExpectUnion(values);
-}
-class ExpectObjectHaving {
-    constructor(entries) {
-        this.entries = entries;
-    }
+export function validateValue(validate) {
+    return new ValueValidator(validate);
 }
 export function objectHaving(entries) {
-    return new ExpectObjectHaving(entries);
+    return new ValueValidator(actual => {
+        assert(typeof actual == 'object' && actual !== null, print('!isObject', actual));
+        assertRecord(actual);
+        for (const prop in entries) {
+            assert(prop in actual, print(`Missing prop '${prop}'`, actual, entries));
+            expect(actual[prop]).toEqual(entries[prop]);
+        }
+    });
 }
 export async function run() {
     const suiteName = process.argv[2];

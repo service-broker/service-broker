@@ -261,6 +261,7 @@ function handleForward(msg: Message, fromEndpoint: Endpoint) {
   }
   const pending = pendingResponse.get(msg.header.to)
   if (pending) {
+    msg.header.from = fromEndpoint.id
     pending(msg)
     return
   }
