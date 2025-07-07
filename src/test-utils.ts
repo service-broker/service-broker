@@ -1,3 +1,4 @@
+import { AssertionError } from "assert";
 import assert from "assert/strict";
 import util from "util";
 import { green, red, yellowBright } from "yoctocolors";
@@ -42,129 +43,6 @@ export function describe(
   scheduleRun()
 }
 
-export function expect(actual: unknown) {
-  return {
-    toEqual(expected: unknown, negate?: 'negate') {
-      if (typeof expected == 'object' && expected !== null) {
-        assert(!negate, "Negation only available for primitives")
-        if (expected instanceof ValueValidator) {
-          assert(expected.validate(actual) === undefined, 'valueValidator must return void')
-        }
-        else if (expected instanceof Set) {
-          assert.deepStrictEqual(actual, expected)
-        }
-        else if (expected instanceof Map) {
-          assert(actual instanceof Map, print('!isMap', actual))
-          for (const [key] of actual) {
-            assert(expected.has(key), print(`Extra key '${key}'`, actual, expected))
-          }
-          for (const [key, expectedValue] of expected) {
-            assert(actual.has(key), print(`Missing key '${key}'`, actual, expected))
-            expect(actual.get(key)).toEqual(expectedValue)
-          }
-        }
-        else if (Array.isArray(expected)) {
-          assert(Array.isArray(actual), print('!isArray', actual))
-          assert.strictEqual(actual.length, expected.length)
-          for (let i=0; i<expected.length; i++) expect(actual[i]).toEqual(expected[i])
-        }
-        else if (Buffer.isBuffer(expected)) {
-          assert(Buffer.isBuffer(actual), print('!isBuffer', actual))
-          assert(actual.equals(expected), print('!Buffer.equals', actual, expected))
-        }
-        else {
-          assert(typeof actual == 'object' && actual !== null, print('!isObject', actual))
-          assertRecord(expected)
-          assertRecord(actual)
-          for (const prop in actual) {
-            assert(prop in expected, print(`Extra prop '${prop}'`, actual, expected))
-          }
-          for (const prop in expected) {
-            assert(prop in actual, print(`Missing prop '${prop}'`, actual, expected))
-            expect(actual[prop]).toEqual(expected[prop])
-          }
-        }
-      }
-      else {
-        if (negate) assert.notStrictEqual(actual, expected)
-        else assert.strictEqual(actual, expected)
-      }
-    },
-    toHaveLength(expected: number) {
-      assert(Array.isArray(actual), print('!isArray', actual))
-      assert.strictEqual(actual.length, expected)
-    },
-    toThrow(expected: string|assert.AssertPredicate) {
-      assert(typeof actual == "function")
-      if (typeof expected == "string") {
-        assert.throws(actual as () => void, err => {
-          assert(err instanceof Error)
-          assert.strictEqual(expected, err.message)
-          return true
-        })
-      }
-      else {
-        assert.throws(actual as () => void, expected)
-      }
-    },
-    async rejects(expected: string|assert.AssertPredicate) {
-      assert(actual instanceof Promise)
-      if (typeof expected == "string") {
-        await assert.rejects(actual, err => {
-          assert(err instanceof Error)
-          assert.strictEqual(expected, err.message)
-          return true
-        })
-      }
-      else {
-        await assert.rejects(actual, expected)
-      }
-    }
-  }
-}
-
-export function print(failure: string, actual: unknown, expected: unknown = print) {
-  return yellowBright(failure)
-    + (expected == print ? '' : '\n' + red('EXPECT') + ' ' + util.inspect(expected))
-    + '\n' + green('ACTUAL') + ' ' + util.inspect(actual)
-}
-
-export type MockFunc = (() => void) & {
-  mock: {
-    calls: unknown[]
-  }
-}
-
-export function mockFunc(): MockFunc {
-  const func: MockFunc = function() {
-    func.mock.calls.push(Array.from(arguments))
-  }
-  func.mock = {
-    calls: []
-  }
-  return func
-}
-
-class ValueValidator {
-  constructor(readonly validate: (value: unknown) => unknown) {
-  }
-}
-
-export function validateValue(validate: (value: unknown) => unknown) {
-  return new ValueValidator(validate)
-}
-
-export function objectHaving(entries: Record<string, unknown>) {
-  return new ValueValidator(actual => {
-    assert(typeof actual == 'object' && actual !== null, print('!isObject', actual))
-    assertRecord(actual)
-    for (const prop in entries) {
-      assert(prop in actual, print(`Missing prop '${prop}'`, actual, entries))
-      expect(actual[prop]).toEqual(entries[prop])
-    }
-  })
-}
-
 export async function run() {
   const suiteName = process.argv[2]
   const testName = process.argv[3]
@@ -183,8 +61,96 @@ export async function run() {
       }
     }
   } catch (err) {
+    if (err instanceof AssertionError) {
+      console.error(red('EXPECT'), util.inspect(err.expected))
+      console.error(green('ACTUAL'), util.inspect(err.actual))
+    }
     console.error(err)
   } finally {
     shutdown$.next()
+  }
+}
+
+
+
+export function expect(actual: unknown) {
+  return {
+    toEqual(expected: unknown) {
+      try {
+        assertEquals(actual, expected, [])
+      } catch (err) {
+        if (Array.isArray(err)) {
+          const [failure, path] = err
+          throw new AssertionError({ message: path.join('.') + ' ' + failure, actual, expected })
+        } else {
+          throw err
+        }
+      }
+    },
+    toContain(expected: Record<string, unknown>) {
+      if (!(typeof actual == 'object' && actual != null)) {
+          throw new AssertionError({ message: '!isObject', actual, expected })
+      }
+      assertRecord(actual)
+      for (const prop in expected) {
+        if (!(prop in actual)) {
+          throw new AssertionError({ message: prop + ' missing', actual, expected })
+        }
+        try {
+          assertEquals(actual[prop], expected[prop], [prop])
+        } catch (err) {
+          if (Array.isArray(err)) {
+            const [failure, path] = err
+            throw new AssertionError({ message: failure + ' ' + path.join('.'), actual, expected })
+          } else {
+            throw err
+          }
+        }
+      }
+    }
+  }
+}
+
+function assertEquals(actual: unknown, expected: unknown, path: unknown[]) {
+  if (typeof expected == 'object' && expected != null) {
+    if (expected instanceof Set) {
+      assert.deepStrictEqual(actual, expected)
+    }
+    else if (expected instanceof Map) {
+      if (!(actual instanceof Map)) throw ['!isMap', path]
+      for (const [key] of actual) {
+        if (!expected.has(key)) throw ['Extra key', [...path, key]]
+      }
+      for (const [key, expectedValue] of expected) {
+        if (!actual.has(key)) throw ['Missing key', [...path, key]]
+        assertEquals(actual.get(key), expectedValue, [...path, key])
+      }
+    }
+    else if (Array.isArray(expected)) {
+      if (!Array.isArray(actual)) throw ['!isArray', path]
+      if (actual.length != expected.length) throw ['!=', path]
+      for (let i=0; i<actual.length; i++)
+        assertEquals(actual[i], expected[i], [...path, i])
+    }
+    else if (Buffer.isBuffer(expected)) {
+      if (!Buffer.isBuffer(actual)) throw ['!isBuffer', path]
+      if (!actual.equals(expected)) throw ['!=', path]
+    }
+    else {
+      if (!(typeof actual == 'object' && actual != null)) throw ['!isObject', path]
+      assertRecord(expected)
+      assertRecord(actual)
+      for (const prop in actual) {
+        if (!(prop in expected)) throw ['Extra prop', [...path, prop]]
+      }
+      for (const prop in expected) {
+        if (!(prop in actual)) throw ['Missing prop', [...path, prop]]
+        assertEquals(actual[prop], expected[prop], [...path, prop])
+      }
+    }
+  } else if (typeof expected == 'function') {
+    assert(typeof expected(actual) == 'undefined', 'Assertion function must not return a value')
+  } else {
+    if (actual !== expected) throw ['!==', path]
   }
 }

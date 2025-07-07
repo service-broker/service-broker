@@ -21,6 +21,7 @@ export default {
     providerAuthToken: process.env.PROVIDER_AUTH_TOKEN,
     providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15 * 1000),
     nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15 * 60 * 1000),
+    pingPongTimeout: 10 * 1000,
     corsOptions: immediate(() => ({
         origin: process.env.ALLOWED_ORIGINS ? new RegExp(process.env.ALLOWED_ORIGINS) : "*",
         methods: "GET,POST",

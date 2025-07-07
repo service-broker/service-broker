@@ -168,7 +168,7 @@ function makeWebSocketServer(server: typeof httpServer) {
     rxjs.exhaustMap(server =>
       rxjs.merge(
         server.connection$.pipe(
-          rxjs.map(makeEndpoint),
+          rxjs.map(con => makeEndpoint(con, config)),
           rxjs.mergeMap(handleConnect)
         ),
         server.error$.pipe(
@@ -227,7 +227,11 @@ function handleConnect(endpoint: Endpoint): rxjs.Observable<unknown> {
 async function processMessage(msg: Message, endpoint: Endpoint) {
   try {
     if (nonProviderRateLimiter && !endpoint.isProvider$.value) {
-      await nonProviderRateLimiter.consume(endpoint.id)
+      try {
+        await nonProviderRateLimiter.consume(endpoint.id)
+      } catch {
+        throw 'TOO_FAST'
+      }
     }
     if (msg.header.to) handleForward(msg, endpoint)
     else if (msg.header.service) handleServiceRequest(msg, endpoint)

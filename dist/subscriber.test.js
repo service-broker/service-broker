@@ -1,5 +1,9 @@
+import assert from "assert";
 import * as subscriberRegistry from "./subscriber.js";
-import { describe, expect, objectHaving } from "./test-utils.js";
+import { describe, expect } from "./test-utils.js";
+function objectHaving(props) {
+    return (actual) => expect(actual).toContain(props);
+}
 describe("subscriber-registry", ({ beforeEach, afterEach, test }) => {
     beforeEach(() => {
         subscriberRegistry.debug.registry.clear();
@@ -11,7 +15,7 @@ describe("subscriber-registry", ({ beforeEach, afterEach, test }) => {
         subscriberRegistry.add('e4', 't1', []);
         subscriberRegistry.add('e5', 't1', undefined);
         //unknown topic
-        expect(subscriberRegistry.find('s2', ['c1'])).toHaveLength(0);
+        assert(subscriberRegistry.find('s2', ['c1']).length == 0);
         //unknown capability
         expect(subscriberRegistry.find('t1', ['c0'])).toEqual([
             objectHaving({ endpoint: 'e5' })

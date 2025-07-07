@@ -1,15 +1,19 @@
+import * as rxjs from "rxjs";
+import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import { describe, expect } from "./test-utils.js";
-import * as rxjs from "rxjs";
 import { connect, makeServer } from "./websocket.js";
-import config from "./config.js";
 describe('endpoint', ({ beforeEach, afterEach, test }) => {
     let e1, e2;
     beforeEach(async () => {
         [e1, e2] = await rxjs.firstValueFrom(rxjs.forkJoin([
             makeServer({ port: config.listeningPort }).pipe(rxjs.exhaustMap(server => server.connection$.pipe(rxjs.take(1), rxjs.finalize(() => server.close())))),
-            connect('ws://localhost:' + config.listeningPort)
-        ]).pipe(rxjs.map(cons => cons.map(makeEndpoint))));
+            connect('ws://localhost:' + config.listeningPort, { autoPong: false })
+        ]).pipe(rxjs.map(cons => cons.map(con => makeEndpoint(con, {
+            ...config,
+            nonProviderKeepAlive: 500,
+            pingPongTimeout: 500
+        })))));
     });
     afterEach(() => {
         e1.debug.connection.close();
@@ -32,8 +36,11 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
         e1.debug.connection.close();
         await rxjs.firstValueFrom(e2.close$);
     });
-    test("keep-alive", () => {
-        //TODO
+    test("keep-alive", async () => {
+        e2.keepAlive$.subscribe();
+        await rxjs.firstValueFrom(rxjs.race(e2.close$.pipe(rxjs.tap(() => { throw new Error('Connection closed unexpectedly'); })), rxjs.timer(1500)));
+        e1.keepAlive$.subscribe();
+        await rxjs.firstValueFrom(rxjs.race(e1.close$, rxjs.timer(1500).pipe(rxjs.tap(() => { throw new Error('Connection not closed as expected'); }))));
     });
 });
 //# sourceMappingURL=endpoint.test.js.map

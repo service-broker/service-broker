@@ -3,14 +3,15 @@ import * as rxjs from "rxjs";
 import config from './config.js';
 import { makeEndpoint } from "./endpoint.js";
 import './index.js';
-import { describe, expect, validateValue } from "./test-utils.js";
+import { describe, expect } from "./test-utils.js";
 import { connect } from './websocket.js';
-const localIp = validateValue(x => {
-    assert(typeof x == 'string' && ['::1', '127.0.0.1'].includes(x));
-});
+function valueOfType(type) {
+    return (x) => assert(typeof x == type);
+}
+const localIp = (x) => assert(typeof x == 'string' && ['::1', '127.0.0.1'].includes(x));
 async function makeClient() {
     const con = await rxjs.firstValueFrom(connect('ws://localhost:' + config.listeningPort));
-    return makeEndpoint(con);
+    return makeEndpoint(con, config);
 }
 async function makeProvider(services) {
     const endpoint = await makeClient();
@@ -35,7 +36,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         c1.debug.connection.close();
         p1.debug.connection.close();
     });
-    test("http-request-response", async () => {
+    test("http-request-text-payload", async () => {
         const promise = fetch(`http://localhost:${config.listeningPort}/s1?capabilities=c1,c2`, {
             method: 'post',
             headers: {
@@ -47,9 +48,9 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         const req = await rxjs.firstValueFrom(p1.message$);
         expect(req).toEqual({
             header: {
-                from: validateValue(x => assert(typeof x == 'string')),
+                from: valueOfType('string'),
                 ip: localIp,
-                id: validateValue(x => assert(typeof x == 'string')),
+                id: valueOfType('string'),
                 service: { name: 's1', capabilities: ['c1', 'c2'] },
                 contentType: 'application/json',
                 a: 1
@@ -60,19 +61,58 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             header: {
                 to: req.header.from,
                 id: req.header.id,
-                contentType: "application/octet-stream"
+                contentType: "text/html"
             },
-            payload: Buffer.from([1, 2, 3])
+            payload: '<html>'
         });
         const res = await promise;
         assert(res.ok);
         expect(JSON.parse(res.headers.get('x-service-response-header'))).toEqual({
-            from: validateValue(x => assert(typeof x == 'string')),
+            from: valueOfType('string'),
+            to: req.header.from,
+            id: req.header.id
+        });
+        assert(res.headers.get('content-type')?.startsWith('text/html'));
+        expect(await res.text()).toEqual('<html>');
+    });
+    test('http-request-binary-payload', async () => {
+        const promise = fetch(`http://localhost:${config.listeningPort}/s1`, {
+            method: 'post',
+            headers: {
+                'x-service-request-header': JSON.stringify({ a: 2 }),
+                'content-type': 'image/png'
+            },
+            body: 'image'
+        });
+        const req = await rxjs.firstValueFrom(p1.message$);
+        expect(req).toEqual({
+            header: {
+                from: valueOfType('string'),
+                ip: localIp,
+                id: valueOfType('string'),
+                service: { name: 's1' },
+                contentType: 'image/png',
+                a: 2
+            },
+            payload: Buffer.from('image')
+        });
+        p1.send({
+            header: {
+                to: req.header.from,
+                id: req.header.id,
+                contentType: "application/octet-stream"
+            },
+            payload: Buffer.from('binary')
+        });
+        const res = await promise;
+        assert(res.ok);
+        expect(JSON.parse(res.headers.get('x-service-response-header'))).toEqual({
+            from: valueOfType('string'),
             to: req.header.from,
             id: req.header.id
         });
         expect(res.headers.get('content-type')).toEqual('application/octet-stream');
-        expect(Buffer.from(await res.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
+        expect(Buffer.from(await res.arrayBuffer())).toEqual(Buffer.from('binary'));
     });
     test("ws-request-response", async () => {
         c1.send({
@@ -85,7 +125,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         const req = await rxjs.firstValueFrom(p1.message$);
         expect(req).toEqual({
             header: {
-                from: validateValue(x => assert(typeof x == 'string')),
+                from: valueOfType('string'),
                 ip: localIp,
                 id: 1,
                 service: { name: 's1' }
@@ -102,7 +142,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         expect(await rxjs.firstValueFrom(c1.message$)).toEqual({
             header: {
                 to: req.header.from,
-                from: validateValue(x => assert(typeof x == 'string')),
+                from: valueOfType('string'),
                 id: 11
             },
             payload: Buffer.from('response')
@@ -123,10 +163,63 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         });
     });
     test("load-balancing", async () => {
-        //TODO
+        const p2 = await makeProvider([{ name: 's1', capabilities: ['c1'] }]);
+        try {
+            for (let i = 0; i < 10; i++) {
+                c1.send({
+                    header: {
+                        id: i,
+                        service: { name: 's1', capabilities: ['c1'] }
+                    },
+                    payload: 'request'
+                });
+            }
+            await Promise.race([
+                Promise.all([
+                    rxjs.firstValueFrom(p1.message$),
+                    rxjs.firstValueFrom(p2.message$)
+                ]),
+                new Promise((f, r) => setTimeout(() => r(new Error('Load was not distributed as expected')), 500))
+            ]);
+        }
+        finally {
+            p2.debug.connection.close();
+        }
     });
-    test("rate-limiting", () => {
-        //TODO
+    test("rate-limiting", async () => {
+        assert(config.nonProviderRateLimit);
+        for (let i = 0; i < config.nonProviderRateLimit.limit; i++) {
+            c1.send({
+                header: {
+                    id: i,
+                    service: { name: 's1' }
+                },
+                payload: 'request' + i
+            });
+            expect(await rxjs.firstValueFrom(p1.message$)).toEqual({
+                header: {
+                    from: valueOfType('string'),
+                    ip: localIp,
+                    id: i,
+                    service: { name: 's1' }
+                },
+                payload: 'request' + i
+            });
+        }
+        c1.send({
+            header: {
+                id: 1000,
+                service: { name: 's1' }
+            },
+            payload: 'limited request'
+        });
+        expect(await rxjs.firstValueFrom(c1.message$)).toEqual({
+            header: {
+                id: 1000,
+                error: 'TOO_FAST'
+            },
+            payload: undefined
+        });
     });
 });
 describe("pub-sub", ({ beforeEach, afterEach, test }) => {
@@ -153,7 +246,7 @@ describe("pub-sub", ({ beforeEach, afterEach, test }) => {
         });
         expect(await rxjs.firstValueFrom(s2.message$)).toEqual({
             header: {
-                from: validateValue(x => assert(typeof x == 'string')),
+                from: valueOfType('string'),
                 ip: localIp,
                 id: 2,
                 service: { name: '#t1', capabilities: ['c1', 'c2'] }
@@ -172,7 +265,7 @@ describe("pub-sub", ({ beforeEach, afterEach, test }) => {
             rxjs.firstValueFrom(s2.message$)
         ])).toEqual([{
                 header: {
-                    from: validateValue(x => assert(typeof x == 'string')),
+                    from: valueOfType('string'),
                     ip: localIp,
                     id: 1,
                     service: { name: '#t1' }
@@ -180,7 +273,7 @@ describe("pub-sub", ({ beforeEach, afterEach, test }) => {
                 payload: 'notification'
             }, {
                 header: {
-                    from: validateValue(x => assert(typeof x == 'string')),
+                    from: valueOfType('string'),
                     ip: localIp,
                     id: 1,
                     service: { name: '#t1' }
@@ -205,7 +298,7 @@ describe("endpoint-healthcheck", ({ beforeEach, afterEach, test }) => {
         const req = await rxjs.firstValueFrom(p1.message$);
         expect(req).toEqual({
             header: {
-                from: validateValue(x => assert(typeof x == 'string')),
+                from: valueOfType('string'),
                 ip: localIp,
                 id: 1,
                 service: { name: 's1' }

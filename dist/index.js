@@ -127,7 +127,7 @@ async function onHttpPost(req, res) {
     }
 }
 function makeWebSocketServer(server) {
-    return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.map(makeEndpoint), rxjs.mergeMap(handleConnect)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
+    return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.map(con => makeEndpoint(con, config)), rxjs.mergeMap(handleConnect)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
 }
 function verifyClient(info) {
     if (info.origin && config.corsOptions.origin instanceof RegExp) {
@@ -161,7 +161,12 @@ function handleConnect(endpoint) {
 async function processMessage(msg, endpoint) {
     try {
         if (nonProviderRateLimiter && !endpoint.isProvider$.value) {
-            await nonProviderRateLimiter.consume(endpoint.id);
+            try {
+                await nonProviderRateLimiter.consume(endpoint.id);
+            }
+            catch {
+                throw 'TOO_FAST';
+            }
         }
         if (msg.header.to)
             handleForward(msg, endpoint);

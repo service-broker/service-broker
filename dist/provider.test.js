@@ -1,5 +1,9 @@
+import assert from "assert";
 import * as providerRegistry from "./provider.js";
-import { describe, expect, objectHaving } from "./test-utils.js";
+import { describe, expect } from "./test-utils.js";
+function objectHaving(props) {
+    return (actual) => expect(actual).toContain(props);
+}
 describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     beforeEach(() => {
         providerRegistry.debug.registry.clear();
@@ -15,7 +19,7 @@ describe("provider-registry", ({ beforeEach, afterEach, test }) => {
         providerRegistry.add('e7', 's1', undefined, 100, undefined);
         providerRegistry.add('e8', 's1', undefined, 50, undefined);
         //unknown service
-        expect(providerRegistry.find('s2', ['c1'])).toHaveLength(0);
+        assert(providerRegistry.find('s2', ['c1']).length == 0);
         //unknown capability
         expect(providerRegistry.find('s1', ['c0'])).toEqual([
             objectHaving({ endpoint: 'e7' })

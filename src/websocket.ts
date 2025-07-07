@@ -44,23 +44,29 @@ export function connect(address: string | URL, options?: ClientOptions | ClientR
 }
 
 function makeConnection(ws: WebSocket, request?: IncomingMessage): Connection {
+  const close$ = rxjs.fromEvent(ws, 'close', (event: CloseEvent) => event)
   return {
     request: request ?? {connectUrl: ws.url},
-    message$: rxjs.fromEvent(ws, 'message', (event: MessageEvent) => event),
-    error$: rxjs.fromEvent(ws, 'error', (event: ErrorEvent) => event),
-    close$: rxjs.fromEvent(ws, 'close', (event: CloseEvent) => event),
+    message$: rxjs.fromEvent(ws, 'message', (event: MessageEvent) => event).pipe(
+      rxjs.takeUntil(close$)
+    ),
+    error$: rxjs.fromEvent(ws, 'error', (event: ErrorEvent) => event).pipe(
+      rxjs.takeUntil(close$)
+    ),
+    close$,
     send: ws.send.bind(ws),
     close: ws.close.bind(ws),
     terminate: ws.terminate.bind(ws),
     keepAlive: (interval, timeout) => rxjs.interval(interval).pipe(
-      rxjs.switchMap(() => {
+      rxjs.exhaustMap(() => {
         ws.ping()
         return rxjs.fromEventPattern(h => ws.on('pong', h), h => ws.off('pong', h)).pipe(
           rxjs.timeout(timeout),
           rxjs.take(1),
           rxjs.ignoreElements()
         )
-      })
+      }),
+      rxjs.takeUntil(close$)
     )
   }
 }
