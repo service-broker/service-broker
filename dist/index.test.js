@@ -3,12 +3,9 @@ import * as rxjs from "rxjs";
 import config from './config.js';
 import { makeEndpoint } from "./endpoint.js";
 import './index.js';
-import { describe, expect } from "./test-utils.js";
+import { describe, expect, oneOf, valueOfType } from "./test-utils.js";
 import { connect } from './websocket.js';
-function valueOfType(type) {
-    return (x) => assert(typeof x == type);
-}
-const localIp = (x) => assert(typeof x == 'string' && ['::1', '127.0.0.1'].includes(x));
+const localIp = oneOf(['::1', '127.0.0.1']);
 async function makeClient() {
     const con = await rxjs.firstValueFrom(connect('ws://localhost:' + config.listeningPort));
     return makeEndpoint(con, config);
@@ -16,11 +13,10 @@ async function makeClient() {
 async function makeProvider(services) {
     const endpoint = await makeClient();
     endpoint.send({
-        header: { id: 1, type: "SbAdvertiseRequest", services }
+        header: { id: 1, type: "SbAdvertiseRequest", services, authToken: config.providerAuthToken }
     });
-    expect(await rxjs.firstValueFrom(endpoint.message$)).toEqual({
-        header: { id: 1, type: "SbAdvertiseResponse" },
-        payload: undefined
+    expect(await rxjs.firstValueFrom(endpoint.message$), {
+        header: { id: 1, type: "SbAdvertiseResponse" }
     });
     return endpoint;
 }
@@ -46,7 +42,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             body: 'request'
         });
         const req = await rxjs.firstValueFrom(p1.message$);
-        expect(req).toEqual({
+        expect(req, {
             header: {
                 from: valueOfType('string'),
                 ip: localIp,
@@ -67,13 +63,13 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         });
         const res = await promise;
         assert(res.ok);
-        expect(JSON.parse(res.headers.get('x-service-response-header'))).toEqual({
+        expect(JSON.parse(res.headers.get('x-service-response-header')), {
             from: valueOfType('string'),
             to: req.header.from,
             id: req.header.id
         });
         assert(res.headers.get('content-type')?.startsWith('text/html'));
-        expect(await res.text()).toEqual('<html>');
+        expect(await res.text(), '<html>');
     });
     test('http-request-binary-payload', async () => {
         const promise = fetch(`http://localhost:${config.listeningPort}/s1`, {
@@ -85,7 +81,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             body: 'image'
         });
         const req = await rxjs.firstValueFrom(p1.message$);
-        expect(req).toEqual({
+        expect(req, {
             header: {
                 from: valueOfType('string'),
                 ip: localIp,
@@ -106,13 +102,13 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
         });
         const res = await promise;
         assert(res.ok);
-        expect(JSON.parse(res.headers.get('x-service-response-header'))).toEqual({
+        expect(JSON.parse(res.headers.get('x-service-response-header')), {
             from: valueOfType('string'),
             to: req.header.from,
             id: req.header.id
         });
-        expect(res.headers.get('content-type')).toEqual('application/octet-stream');
-        expect(Buffer.from(await res.arrayBuffer())).toEqual(Buffer.from('binary'));
+        expect(res.headers.get('content-type'), 'application/octet-stream');
+        expect(Buffer.from(await res.arrayBuffer()), Buffer.from('binary'));
     });
     test("ws-request-response", async () => {
         c1.send({
@@ -123,7 +119,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             payload: 'request'
         });
         const req = await rxjs.firstValueFrom(p1.message$);
-        expect(req).toEqual({
+        expect(req, {
             header: {
                 from: valueOfType('string'),
                 ip: localIp,
@@ -139,7 +135,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             },
             payload: Buffer.from('response')
         });
-        expect(await rxjs.firstValueFrom(c1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(c1.message$), {
             header: {
                 to: req.header.from,
                 from: valueOfType('string'),
@@ -154,12 +150,11 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             },
             payload: Buffer.from('request')
         });
-        expect(await rxjs.firstValueFrom(c1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(c1.message$), {
             header: {
                 id: 2,
                 error: 'NO_PROVIDER s1'
-            },
-            payload: undefined
+            }
         });
     });
     test("load-balancing", async () => {
@@ -196,7 +191,7 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
                 },
                 payload: 'request' + i
             });
-            expect(await rxjs.firstValueFrom(p1.message$)).toEqual({
+            expect(await rxjs.firstValueFrom(p1.message$), {
                 header: {
                     from: valueOfType('string'),
                     ip: localIp,
@@ -213,12 +208,11 @@ describe("request-response", ({ beforeEach, afterEach, test }) => {
             },
             payload: 'limited request'
         });
-        expect(await rxjs.firstValueFrom(c1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(c1.message$), {
             header: {
                 id: 1000,
                 error: 'TOO_FAST'
-            },
-            payload: undefined
+            }
         });
     });
 });
@@ -244,7 +238,7 @@ describe("pub-sub", ({ beforeEach, afterEach, test }) => {
             },
             payload: Buffer.from('notification')
         });
-        expect(await rxjs.firstValueFrom(s2.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(s2.message$), {
             header: {
                 from: valueOfType('string'),
                 ip: localIp,
@@ -263,7 +257,7 @@ describe("pub-sub", ({ beforeEach, afterEach, test }) => {
         expect(await Promise.all([
             rxjs.firstValueFrom(s1.message$),
             rxjs.firstValueFrom(s2.message$)
-        ])).toEqual([{
+        ]), [{
                 header: {
                     from: valueOfType('string'),
                     ip: localIp,
@@ -296,14 +290,13 @@ describe("endpoint-healthcheck", ({ beforeEach, afterEach, test }) => {
             }
         });
         const req = await rxjs.firstValueFrom(p1.message$);
-        expect(req).toEqual({
+        expect(req, {
             header: {
                 from: valueOfType('string'),
                 ip: localIp,
                 id: 1,
                 service: { name: 's1' }
-            },
-            payload: undefined
+            }
         });
         c1.id = req.header.from;
     });
@@ -319,13 +312,12 @@ describe("endpoint-healthcheck", ({ beforeEach, afterEach, test }) => {
                 endpointIds: [c1.id, 'crap']
             }
         });
-        expect(await rxjs.firstValueFrom(p1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(p1.message$), {
             header: {
                 id: 2,
                 type: "SbEndpointStatusResponse",
                 endpointStatuses: [true, false]
-            },
-            payload: undefined
+            }
         });
     });
     test("wait-endpoint", async () => {
@@ -343,25 +335,38 @@ describe("endpoint-healthcheck", ({ beforeEach, afterEach, test }) => {
                 service: { name: 's1' }
             }
         });
-        expect(await rxjs.firstValueFrom(p1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(p1.message$), {
             header: {
                 from: c1.id,
                 ip: localIp,
                 id: 4,
                 service: { name: 's1' }
-            },
-            payload: undefined
+            }
         });
         await new Promise(f => setTimeout(f, 100));
         c1.debug.connection.close();
-        expect(await rxjs.firstValueFrom(p1.message$)).toEqual({
+        expect(await rxjs.firstValueFrom(p1.message$), {
             header: {
                 id: 3,
                 type: "SbEndpointWaitResponse",
                 endpointId: c1.id
-            },
-            payload: undefined
+            }
         });
+    });
+    test("auth-token", async () => {
+        assert(config.providerAuthToken);
+        const endpoint = await makeClient();
+        try {
+            endpoint.send({
+                header: { id: 1, type: "SbAdvertiseRequest", services: [{ name: 's1' }] }
+            });
+            expect(await rxjs.firstValueFrom(endpoint.message$), {
+                header: { id: 1, error: 'FORBIDDEN' }
+            });
+        }
+        finally {
+            endpoint.debug.connection.close();
+        }
     });
 });
 //# sourceMappingURL=index.test.js.map

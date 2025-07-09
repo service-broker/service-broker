@@ -1,10 +1,7 @@
 import assert from "assert";
 import * as providerRegistry from "./provider.js";
-import { describe, expect } from "./test-utils.js";
+import { describe, expect, objectHaving } from "./test-utils.js";
 
-function objectHaving(props: Record<string, unknown>) {
-  return (actual: unknown) => expect(actual).toContain(props)
-}
 
 describe("provider-registry", ({ beforeEach, afterEach, test }) => {
 
@@ -27,12 +24,12 @@ describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     assert(providerRegistry.find('s2', ['c1']).length == 0)
 
     //unknown capability
-    expect(providerRegistry.find('s1', ['c0'])).toEqual([
+    expect(providerRegistry.find('s1', ['c0']), [
       objectHaving({endpoint: 'e7'})
     ])
 
     //single cap
-    expect(providerRegistry.find('s1', ['c1'])).toEqual([
+    expect(providerRegistry.find('s1', ['c1']), [
       objectHaving({endpoint: 'e1'}),
       objectHaving({endpoint: 'e2'}),
       objectHaving({endpoint: 'e3'}),
@@ -40,28 +37,28 @@ describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     ])
 
     //multiple caps
-    expect(providerRegistry.find('s1', ['c1', 'c2'])).toEqual([
+    expect(providerRegistry.find('s1', ['c1', 'c2']), [
       objectHaving({endpoint: 'e1'}),
       objectHaving({endpoint: 'e2'}),
       objectHaving({endpoint: 'e7'})
     ])
 
-    expect(providerRegistry.find('s1', ['c2', 'c3'])).toEqual([
+    expect(providerRegistry.find('s1', ['c2', 'c3']), [
       objectHaving({endpoint: 'e1'}),
       objectHaving({endpoint: 'e7'})
     ])
 
     //multiple caps prioritized
-    expect(providerRegistry.find('s1', ['c1', 'c4'])).toEqual([
+    expect(providerRegistry.find('s1', ['c1', 'c4']), [
       objectHaving({endpoint: 'e7'})
     ])
 
-    expect(providerRegistry.find('s1', ['c4'])).toEqual([
+    expect(providerRegistry.find('s1', ['c4']), [
       objectHaving({endpoint: 'e5'})
     ])
 
     //any cap
-    expect(providerRegistry.find('s1', undefined)).toEqual([
+    expect(providerRegistry.find('s1', undefined), [
       objectHaving({endpoint: 'e5'}),
       objectHaving({endpoint: 'e6'})
     ])
@@ -70,7 +67,7 @@ describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     providerRegistry.remove('e1' as any)
     providerRegistry.remove('e2' as any)
 
-    expect(providerRegistry.find('s1', ['c1'])).toEqual([
+    expect(providerRegistry.find('s1', ['c1']), [
       objectHaving({endpoint: 'e3'}),
       objectHaving({endpoint: 'e7'})
     ])

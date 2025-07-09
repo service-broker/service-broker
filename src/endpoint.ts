@@ -100,30 +100,50 @@ export function makeEndpoint(ws: Connection, config: {
   function messageFromString(str: string): Message {
     if (str[0] != '{') throw new Error("Message doesn't have JSON header")
     const index = str.slice(0, config.maxHeaderSize).indexOf('\n')
-    const headerStr = (index != -1) ? str.slice(0, index) : str
-    const payload = (index != -1) ? str.slice(index + 1) : undefined
-    try {
-      const header: unknown = JSON.parse(headerStr)
-      assert(typeof header == 'object' && header != null)
-      assertRecord(header)
-      return { header, payload }
-    } catch (err) {
-      throw new Error("Failed to parse message header")
+    if (index != -1) {
+      try {
+        const header: unknown = JSON.parse(str.slice(0, index))
+        assert(typeof header == 'object' && header != null)
+        assertRecord(header)
+        return { header, payload: str.slice(index + 1) }
+      } catch (err) {
+        throw new Error("Failed to parse message header")
+      }
+    } else {
+      if (str.length > config.maxHeaderSize) throw new Error('Message header too large')
+      try {
+        const header: unknown = JSON.parse(str)
+        assert(typeof header == 'object' && header != null)
+        assertRecord(header)
+        return { header }
+      } catch (err) {
+        throw new Error("Failed to parse message header")
+      }
     }
   }
 
   function messageFromBuffer(buf: Buffer): Message {
     if (buf[0] != 123) throw new Error("Message doesn't have JSON header")
     const index = buf.subarray(0, config.maxHeaderSize).indexOf('\n')
-    const headerStr = (index != -1) ? buf.subarray(0, index).toString() : buf.toString()
-    const payload = (index != -1) ? buf.subarray(index + 1) : undefined
-    try {
-      const header: unknown = JSON.parse(headerStr)
-      assert(typeof header == 'object' && header != null)
-      assertRecord(header)
-      return { header, payload }
-    } catch (err) {
-      throw new Error("Failed to parse message header")
+    if (index != -1) {
+      try {
+        const header: unknown = JSON.parse(buf.subarray(0, index).toString())
+        assert(typeof header == 'object' && header != null)
+        assertRecord(header)
+        return { header, payload: buf.subarray(index + 1) }
+      } catch (err) {
+        throw new Error("Failed to parse message header")
+      }
+    } else {
+      if (buf.length > config.maxHeaderSize) throw new Error('Message header too large')
+      try {
+        const header: unknown = JSON.parse(buf.toString())
+        assert(typeof header == 'object' && header != null)
+        assertRecord(header)
+        return { header }
+      } catch (err) {
+        throw new Error("Failed to parse message header")
+      }
     }
   }
 }

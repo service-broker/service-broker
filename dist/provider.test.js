@@ -1,9 +1,6 @@
 import assert from "assert";
 import * as providerRegistry from "./provider.js";
-import { describe, expect } from "./test-utils.js";
-function objectHaving(props) {
-    return (actual) => expect(actual).toContain(props);
-}
+import { describe, expect, objectHaving } from "./test-utils.js";
 describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     beforeEach(() => {
         providerRegistry.debug.registry.clear();
@@ -21,42 +18,42 @@ describe("provider-registry", ({ beforeEach, afterEach, test }) => {
         //unknown service
         assert(providerRegistry.find('s2', ['c1']).length == 0);
         //unknown capability
-        expect(providerRegistry.find('s1', ['c0'])).toEqual([
+        expect(providerRegistry.find('s1', ['c0']), [
             objectHaving({ endpoint: 'e7' })
         ]);
         //single cap
-        expect(providerRegistry.find('s1', ['c1'])).toEqual([
+        expect(providerRegistry.find('s1', ['c1']), [
             objectHaving({ endpoint: 'e1' }),
             objectHaving({ endpoint: 'e2' }),
             objectHaving({ endpoint: 'e3' }),
             objectHaving({ endpoint: 'e7' })
         ]);
         //multiple caps
-        expect(providerRegistry.find('s1', ['c1', 'c2'])).toEqual([
+        expect(providerRegistry.find('s1', ['c1', 'c2']), [
             objectHaving({ endpoint: 'e1' }),
             objectHaving({ endpoint: 'e2' }),
             objectHaving({ endpoint: 'e7' })
         ]);
-        expect(providerRegistry.find('s1', ['c2', 'c3'])).toEqual([
+        expect(providerRegistry.find('s1', ['c2', 'c3']), [
             objectHaving({ endpoint: 'e1' }),
             objectHaving({ endpoint: 'e7' })
         ]);
         //multiple caps prioritized
-        expect(providerRegistry.find('s1', ['c1', 'c4'])).toEqual([
+        expect(providerRegistry.find('s1', ['c1', 'c4']), [
             objectHaving({ endpoint: 'e7' })
         ]);
-        expect(providerRegistry.find('s1', ['c4'])).toEqual([
+        expect(providerRegistry.find('s1', ['c4']), [
             objectHaving({ endpoint: 'e5' })
         ]);
         //any cap
-        expect(providerRegistry.find('s1', undefined)).toEqual([
+        expect(providerRegistry.find('s1', undefined), [
             objectHaving({ endpoint: 'e5' }),
             objectHaving({ endpoint: 'e6' })
         ]);
         //removal
         providerRegistry.remove('e1');
         providerRegistry.remove('e2');
-        expect(providerRegistry.find('s1', ['c1'])).toEqual([
+        expect(providerRegistry.find('s1', ['c1']), [
             objectHaving({ endpoint: 'e3' }),
             objectHaving({ endpoint: 'e7' })
         ]);

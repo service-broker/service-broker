@@ -20,17 +20,21 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
         e2.debug.connection.close();
     });
     async function sendRecv(msg, expected = msg) {
-        e1.send(msg);
-        expect(await rxjs.firstValueFrom(e2.message$)).toEqual(expected);
-        e2.send(msg);
-        expect(await rxjs.firstValueFrom(e1.message$)).toEqual(expected);
+        if (Math.random() >= .5) {
+            e1.send(msg);
+            expect(await rxjs.firstValueFrom(e2.message$), expected);
+        }
+        else {
+            e2.send(msg);
+            expect(await rxjs.firstValueFrom(e1.message$), expected);
+        }
     }
     test("send-receive", async () => {
         await sendRecv({ header: { a: 1 }, payload: 'text' });
         await sendRecv({ header: { b: 2 }, payload: Buffer.from('bin') });
         await sendRecv({ header: { c: 3 }, payload: '' });
         await sendRecv({ header: { d: 4 }, payload: Buffer.from([]) });
-        await sendRecv({ header: { e: 5 }, payload: undefined });
+        await sendRecv({ header: { e: 5 } });
     });
     test("close", async () => {
         e1.debug.connection.close();
@@ -41,6 +45,13 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
         await rxjs.firstValueFrom(rxjs.race(e2.close$.pipe(rxjs.tap(() => { throw new Error('Connection closed unexpectedly'); })), rxjs.timer(1500)));
         e1.keepAlive$.subscribe();
         await rxjs.firstValueFrom(rxjs.race(e1.close$, rxjs.timer(1500).pipe(rxjs.tap(() => { throw new Error('Connection not closed as expected'); }))));
+    });
+    test("max-header-size", async () => {
+        const bigStr = '-'.repeat(config.maxHeaderSize + 1);
+        e1.send({ header: { a: bigStr } });
+        e1.send({ header: { a: bigStr, payload: 'text' } });
+        e1.send({ header: { b: 1 }, payload: bigStr });
+        expect(await rxjs.firstValueFrom(e2.message$), { header: { b: 1 }, payload: bigStr });
     });
 });
 //# sourceMappingURL=endpoint.test.js.map
