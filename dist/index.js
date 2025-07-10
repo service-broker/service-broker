@@ -12,7 +12,8 @@ import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom, shutdown$ } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
+const shutdown$ = new rxjs.Subject();
 const app = immediate(() => {
     const app = express();
     app.set("trust proxy", config.trustProxy);
@@ -329,4 +330,9 @@ function handleEndpointWaitRequest(msg, waiterEndpoint) {
         throw "ALREADY_WAITING";
     target.waiters.set(waiterEndpoint.id, { responseId: msg.header.id });
 }
+export const debug = {
+    shutdown() {
+        shutdown$.next();
+    }
+};
 //# sourceMappingURL=index.js.map

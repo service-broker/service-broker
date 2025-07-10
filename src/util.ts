@@ -2,8 +2,6 @@ import http from "http";
 import * as rxjs from "rxjs";
 import Stream from "stream";
 
-export const shutdown$ = new rxjs.Subject<void>()
-
 export function immediate<T>(func: () => T) {
   return func()
 }

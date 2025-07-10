@@ -1,10 +1,10 @@
-import { describe, expect, oneOf, valueOfType } from "@service-broker/test-utils";
+import { afterEverything, describe, expect, oneOf, valueOfType } from "@service-broker/test-utils";
 import { connect } from '@service-broker/websocket';
 import assert from "assert";
 import * as rxjs from "rxjs";
 import config from './config.js';
 import { makeEndpoint } from "./endpoint.js";
-import './index.js';
+import { debug as indexDebug } from './index.js';
 const localIp = oneOf(['::1', '127.0.0.1']);
 async function makeClient() {
     const con = await rxjs.firstValueFrom(connect('ws://localhost:' + config.listeningPort));
@@ -368,5 +368,8 @@ describe("endpoint-healthcheck", ({ beforeEach, afterEach, test }) => {
             endpoint.debug.connection.close();
         }
     });
+});
+afterEverything(() => {
+    indexDebug.shutdown();
 });
 //# sourceMappingURL=index.test.js.map

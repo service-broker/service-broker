@@ -1,5 +1,3 @@
-import * as rxjs from "rxjs";
-export const shutdown$ = new rxjs.Subject();
 export function immediate(func) {
     return func();
 }

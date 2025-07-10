@@ -12,8 +12,9 @@ import config from "./config.js";
 import { Endpoint, Message, makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
-import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom, shutdown$ } from "./util.js";
+import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
 
+const shutdown$ = new rxjs.Subject<void>()
 
 const app = immediate(() => {
   const app = express()
@@ -387,4 +388,10 @@ function handleEndpointWaitRequest(msg: Message, waiterEndpoint: Endpoint) {
   if (!target) throw "ENDPOINT_NOT_FOUND"
   if (target.waiters.has(waiterEndpoint.id)) throw "ALREADY_WAITING"
   target.waiters.set(waiterEndpoint.id, {responseId: msg.header.id})
+}
+
+export const debug = {
+  shutdown() {
+    shutdown$.next()
+  }
 }
