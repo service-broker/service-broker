@@ -20,6 +20,24 @@ async function makeProvider(services) {
     });
     return endpoint;
 }
+describe("advertise", ({ beforeEach, afterEach, test }) => {
+    let p1;
+    beforeEach(async () => {
+        p1 = await makeClient();
+    });
+    afterEach(() => {
+        p1.debug.connection.close();
+    });
+    test('with-payload', async () => {
+        p1.send({
+            header: { id: 1, type: "SbAdvertiseRequest", authToken: config.providerAuthToken },
+            payload: JSON.stringify([{ name: 's1' }])
+        });
+        expect(await rxjs.firstValueFrom(p1.message$), {
+            header: { id: 1, type: "SbAdvertiseResponse" }
+        });
+    });
+});
 describe("request-response", ({ beforeEach, afterEach, test }) => {
     let c1, p1;
     beforeEach(async () => {

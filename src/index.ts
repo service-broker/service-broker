@@ -292,8 +292,18 @@ function handleServiceRequest(msg: Message, endpoint: Endpoint) {
 }
 
 function handleAdvertiseRequest(msg: Message, endpoint: Endpoint) {
-  if (!Array.isArray(msg.header.services)) throw 'BAD_REQUEST'
-  const {services, topics} = parseAdvertisedServices(msg.header.services)
+  const {services, topics} = immediate(() => {
+    if (msg.header.services) {
+      return parseAdvertisedServices(msg.header.services)
+    } else {
+      if (typeof msg.payload == 'string') {
+        if (msg.payload.length > 64*1024) throw 'PAYLOAD_TOO_LARGE'
+        return parseAdvertisedServices(JSON.parse(msg.payload) as unknown)
+      } else {
+        throw 'BAD_REQUEST'
+      }
+    }
+  })
   if (services.length > 0 && config.providerAuthToken && msg.header.authToken != config.providerAuthToken) throw "FORBIDDEN"
 
   providerRegistry.remove(endpoint);
@@ -316,7 +326,7 @@ function handleAdvertiseRequest(msg: Message, endpoint: Endpoint) {
   }
 }
 
-function parseAdvertisedServices(items: unknown[]) {
+function parseAdvertisedServices(items: unknown) {
   interface Service {
     name: string
     capabilities?: string[]
@@ -330,7 +340,8 @@ function parseAdvertisedServices(items: unknown[]) {
   const services: Service[] = []
   const topics: Topic[] = []
 
-  for (const item of items) {
+  if (!Array.isArray(items)) throw 'BAD_REQUEST'
+  for (const item of items as unknown[]) {
     if (typeof item != 'object' || item == null) throw 'BAD_REQUEST'
     assertRecord(item)
     const {name, capabilities, priority, httpHeaders} = item
