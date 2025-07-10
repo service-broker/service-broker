@@ -1,8 +1,8 @@
+import { Connection } from "@service-broker/websocket";
 import assert from "assert";
 import http from "http";
 import * as rxjs from "rxjs";
 import { assertRecord, generateId, getClientIp } from "./util.js";
-import { Connection } from "./websocket.js";
 
 export interface Message {
   header: Record<string, unknown>
@@ -15,7 +15,7 @@ export interface Endpoint {
   isProvider$: rxjs.BehaviorSubject<boolean>
   waiters: Map<string, { responseId: unknown }>
   message$: rxjs.Observable<Message>
-  keepAlive$: rxjs.Observable<never>
+  keepAlive$: rxjs.Observable<number>
   close$: rxjs.Observable<unknown>
   send(m: Message): void
   debug: {
@@ -27,7 +27,7 @@ export function makeEndpoint(ws: Connection, config: {
   trustProxy: number
   providerKeepAlive: number
   nonProviderKeepAlive: number
-  pingPongTimeout: number
+  pingTimeout: number
   maxHeaderSize: number
 }): Endpoint {
   const id = generateId()
@@ -51,9 +51,9 @@ export function makeEndpoint(ws: Connection, config: {
     keepAlive$: isProvider$.pipe(
       rxjs.distinctUntilChanged(),
       rxjs.switchMap(isProvider =>
-        ws.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, config.pingPongTimeout).pipe(
+        ws.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, config.pingTimeout).pipe(
           rxjs.catchError(() => {
-            console.info('Ping-pong timeout', isProvider ? 'provider' : 'client', id, clientIp)
+            console.info('Ping timeout', isProvider ? 'provider' : 'client', id, clientIp)
             ws.terminate()
             return rxjs.EMPTY
           })

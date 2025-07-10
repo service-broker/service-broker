@@ -1,8 +1,8 @@
+import { describe, expect } from "@service-broker/test-utils";
+import { connect, makeServer } from "@service-broker/websocket";
 import * as rxjs from "rxjs";
 import config from "./config.js";
 import { makeEndpoint } from "./endpoint.js";
-import { describe, expect } from "./test-utils.js";
-import { connect, makeServer } from "./websocket.js";
 describe('endpoint', ({ beforeEach, afterEach, test }) => {
     let e1, e2;
     beforeEach(async () => {
@@ -11,8 +11,8 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
             connect('ws://localhost:' + config.listeningPort, { autoPong: false })
         ]).pipe(rxjs.map(cons => cons.map(con => makeEndpoint(con, {
             ...config,
-            nonProviderKeepAlive: 500,
-            pingPongTimeout: 500
+            nonProviderKeepAlive: 250,
+            pingTimeout: 50
         })))));
     });
     afterEach(() => {
@@ -38,13 +38,20 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
     });
     test("close", async () => {
         e1.debug.connection.close();
-        await rxjs.firstValueFrom(e2.close$);
+        await Promise.all([
+            rxjs.firstValueFrom(e1.close$),
+            rxjs.firstValueFrom(e2.close$)
+        ]);
     });
-    test("keep-alive", async () => {
-        e2.keepAlive$.subscribe();
-        await rxjs.firstValueFrom(rxjs.race(e2.close$.pipe(rxjs.tap(() => { throw new Error('Connection closed unexpectedly'); })), rxjs.timer(1500)));
+    test("keep-alive-success", async () => {
+        expect(await rxjs.firstValueFrom(e2.keepAlive$.pipe(rxjs.take(3), rxjs.buffer(rxjs.NEVER))), [0, 1, 2]);
+    });
+    test("keep-alive-timeout", async () => {
         e1.keepAlive$.subscribe();
-        await rxjs.firstValueFrom(rxjs.race(e1.close$, rxjs.timer(1500).pipe(rxjs.tap(() => { throw new Error('Connection not closed as expected'); }))));
+        await Promise.all([
+            rxjs.firstValueFrom(e1.close$),
+            rxjs.firstValueFrom(e2.close$)
+        ]);
     });
     test("max-header-size", async () => {
         const bigStr = '-'.repeat(config.maxHeaderSize + 1);

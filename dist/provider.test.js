@@ -1,6 +1,6 @@
+import { describe, expect, objectHaving } from "@service-broker/test-utils";
 import assert from "assert";
 import * as providerRegistry from "./provider.js";
-import { describe, expect, objectHaving } from "./test-utils.js";
 describe("provider-registry", ({ beforeEach, afterEach, test }) => {
     beforeEach(() => {
         providerRegistry.debug.registry.clear();

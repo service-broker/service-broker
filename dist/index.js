@@ -1,3 +1,4 @@
+import * as ws from "@service-broker/websocket";
 import cors from "cors";
 import express from "express";
 import expressRateLimit from "express-rate-limit";
@@ -12,7 +13,6 @@ import { makeEndpoint } from "./endpoint.js";
 import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
 import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom, shutdown$ } from "./util.js";
-import * as ws from "./websocket.js";
 const app = immediate(() => {
     const app = express();
     app.set("trust proxy", config.trustProxy);

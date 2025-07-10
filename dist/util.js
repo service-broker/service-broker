@@ -3,10 +3,6 @@ export const shutdown$ = new rxjs.Subject();
 export function immediate(func) {
     return func();
 }
-export function lazy(func) {
-    let out;
-    return () => (out ?? (out = { val: func() })).val;
-}
 export function assertRecord(value) {
 }
 export function pickRandom(list) {
