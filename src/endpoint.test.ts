@@ -23,8 +23,8 @@ describe('endpoint', ({ beforeEach, afterEach, test }) => {
       ]).pipe(
         rxjs.map(cons => cons.map(con => makeEndpoint(con, {
           ...config,
-          nonProviderKeepAlive: 250,
-          pingTimeout: 50
+          nonProviderPingInterval: 250,
+          pongTimeout: 50
         })))
       )
     )

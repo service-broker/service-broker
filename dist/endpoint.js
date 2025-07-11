@@ -20,8 +20,8 @@ export function makeEndpoint(ws, config) {
                 return rxjs.EMPTY;
             }
         })),
-        keepAlive$: isProvider$.pipe(rxjs.distinctUntilChanged(), rxjs.switchMap(isProvider => ws.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, config.pingTimeout).pipe(rxjs.catchError(() => {
-            console.info('Ping timeout', isProvider ? 'provider' : 'client', id, clientIp);
+        keepAlive$: isProvider$.pipe(rxjs.distinctUntilChanged(), rxjs.switchMap(isProvider => ws.keepAlive(isProvider ? config.providerPingInterval : config.nonProviderPingInterval, config.pongTimeout).pipe(rxjs.catchError(() => {
+            console.info('Pong timeout', isProvider ? 'provider' : 'client', id, clientIp);
             ws.terminate();
             return rxjs.EMPTY;
         })))),

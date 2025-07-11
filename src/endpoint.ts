@@ -25,9 +25,9 @@ export interface Endpoint {
 
 export function makeEndpoint(ws: Connection, config: {
   trustProxy: number
-  providerKeepAlive: number
-  nonProviderKeepAlive: number
-  pingTimeout: number
+  providerPingInterval: number
+  nonProviderPingInterval: number
+  pongTimeout: number
   maxHeaderSize: number
 }): Endpoint {
   const id = generateId()
@@ -51,9 +51,9 @@ export function makeEndpoint(ws: Connection, config: {
     keepAlive$: isProvider$.pipe(
       rxjs.distinctUntilChanged(),
       rxjs.switchMap(isProvider =>
-        ws.keepAlive(isProvider ? config.providerKeepAlive : config.nonProviderKeepAlive, config.pingTimeout).pipe(
+        ws.keepAlive(isProvider ? config.providerPingInterval : config.nonProviderPingInterval, config.pongTimeout).pipe(
           rxjs.catchError(() => {
-            console.info('Ping timeout', isProvider ? 'provider' : 'client', id, clientIp)
+            console.info('Pong timeout', isProvider ? 'provider' : 'client', id, clientIp)
             ws.terminate()
             return rxjs.EMPTY
           })

@@ -25,9 +25,9 @@ export default {
   }),
 
   providerAuthToken: process.env.PROVIDER_AUTH_TOKEN,
-  providerKeepAlive: Number(process.env.PROVIDER_KEEP_ALIVE || 15*1000),
-  nonProviderKeepAlive: Number(process.env.NON_PROVIDER_KEEP_ALIVE || 15*60*1000),
-  pingTimeout: 10*1000,
+  providerPingInterval: Number(process.env.PROVIDER_PING_INTERVAL || 15*1000),
+  nonProviderPingInterval: Number(process.env.NON_PROVIDER_PING_INTERVAL || 5*60*1000),
+  pongTimeout: Number(process.env.PONG_TIMEOUT || 30*1000),
 
   corsOptions: immediate((): CorsOptions => ({
     origin: process.env.ALLOWED_ORIGINS ? new RegExp(process.env.ALLOWED_ORIGINS) : "*",

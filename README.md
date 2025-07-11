@@ -7,15 +7,16 @@ To configure the broker: `vi .env`.
 
 Environment Var | Type | Default Value | Description
 --------------- | ---- | ----------- | -----------
-LISTENING_PORT | Number | | HTTP/WebSocket listening port
-LISTENING_HOST | String | | (Optional) bind address
+LISTENING_PORT | Number | | (Required) HTTP/WebSocket listening port
+LISTENING_HOST | String | | Bind address
 SSL_PORT | Number | | SSL listening port
-SSL_HOST | String | | (Optional) SSL bind address
+SSL_HOST | String | | SSL bind address
 SSL_CERT | String | | SSL certificate file
 SSL_KEY | String | | SSL private key file
-ALLOWED_ORIGINS | RegExp | /./ | Allowed CORS origins
-TRUST_PROXY | | | ExpressJS trust proxy configuration parameter
-PROVIDER_AUTH_TOKEN | String | | (Optional) Provider must include matching `authToken` in advertise request
-PROVIDER_KEEP_ALIVE | Number | 15 seconds | WebSocket ping/pong interval
-NON_PROVIDER_KEEP_ALIVE | Number | 15 minutes | WebSocket ping/pong interval
-RATE_LIMIT | Count/Interval | | (Optional) Message rate limit for non-providers
+ALLOWED_ORIGINS | RegExp | '*' | Allowed CORS origins
+TRUST_PROXY | | | Express 'trust proxy' configuration parameter
+PROVIDER_AUTH_TOKEN | String | | Require providers to include matching `authToken` in advertise requests
+PROVIDER_PING_INTERVAL | Number | 15 seconds | How often to send pings (providers)
+NON_PROVIDER_PING_INTERVAL | Number | 5 minutes | How often to send pings (non-providers)
+PONG_TIMEOUT | Number | 30 seconds | Duration to wait for pong before a connection is considered dead
+RATE_LIMIT | Count/Interval | | Message rate limit (non-providers)
