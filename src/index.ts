@@ -56,6 +56,7 @@ const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemo
   points: config.nonProviderRateLimit.limit,
   duration: config.nonProviderRateLimit.windowMs / 1000
 }) : null
+const recoveryKeys = new Map<string, { endpointId: string, expireAt: number }>()
 
 
 
@@ -76,6 +77,12 @@ rxjs.merge(
       appendFile(config.basicStats.file, `${now.getHours()}:${now.getMinutes()} ` + basicStats.toJson() + "\n")
         .then(() => basicStats.clear())
         .catch(console.error)
+    })
+  ),
+  rxjs.interval(config.recoveryKey.ttl).pipe(
+    rxjs.tap(() => {
+      const now = Date.now()
+      for (const [key, value] of recoveryKeys) if (value.expireAt <= now) recoveryKeys.delete(key)
     })
   ),
   rxjs.fromEvent(process, 'uncaughtException').pipe(
@@ -218,7 +225,15 @@ function handleConnect(endpoint: Endpoint): rxjs.Observable<unknown> {
       )
     ),
     rxjs.finalize(() => {
-      endpoints.delete(endpoint.id)
+      if (endpoints.get(endpoint.id) == endpoint) {
+        endpoints.delete(endpoint.id)
+        if (endpoint.recoveryKey) {
+          recoveryKeys.set(endpoint.recoveryKey, {
+            endpointId: endpoint.id,
+            expireAt: Date.now() + config.recoveryKey.ttl
+          })
+        }
+      }
       providerRegistry.remove(endpoint);
       subscriberRegistry.remove(endpoint)
     })
@@ -240,6 +255,7 @@ async function processMessage(msg: Message, endpoint: Endpoint) {
     else if (msg.header.type == "SbStatusRequest") handleStatusRequest(msg, endpoint)
     else if (msg.header.type == "SbEndpointStatusRequest") handleEndpointStatusRequest(msg, endpoint)
     else if (msg.header.type == "SbEndpointWaitRequest") handleEndpointWaitRequest(msg, endpoint)
+    else if (msg.header.type == "SbSessionRecoveryRequest") handleSessionRecoveryRequest(msg, endpoint)
     else throw "Don't know what to do with message"
   }
   catch (err) {
@@ -399,6 +415,38 @@ function handleEndpointWaitRequest(msg: Message, waiterEndpoint: Endpoint) {
   if (!target) throw "ENDPOINT_NOT_FOUND"
   if (target.waiters.has(waiterEndpoint.id)) throw "ALREADY_WAITING"
   target.waiters.set(waiterEndpoint.id, {responseId: msg.header.id})
+}
+
+function handleSessionRecoveryRequest(msg: Message, endpoint: Endpoint) {
+  if (endpoint.recoveryKey) throw 'ALREADY_RECOVERED'
+  const key = typeof msg.header.recoveryKey == 'string' ? msg.header.recoveryKey : undefined
+  const recoveredSession = key ? recoveryKeys.get(key) : undefined
+  if (key && recoveredSession && recoveredSession.expireAt > Date.now()) {
+    //valid recoveryKey: recover and return same key
+    if (endpoint.id != recoveredSession.endpointId) {
+      const oldEndpoint = endpoints.get(recoveredSession.endpointId)
+      try {
+        endpoints.delete(endpoint.id)
+        endpoints.set(endpoint.id = recoveredSession.endpointId, endpoint)
+      } finally {
+        oldEndpoint?.close(4000, 'Replaced by another endpoint through session recovery')
+      }
+    }
+    endpoint.recoveryKey = key
+  } else {
+    //invalid or no-longer-valid or not-provided: create and return a new recoveryKey
+    do {
+      endpoint.recoveryKey = generateId()
+    } while (recoveryKeys.has(endpoint.recoveryKey))
+  }
+  recoveryKeys.set(endpoint.recoveryKey, { endpointId: endpoint.id, expireAt: Infinity })
+  endpoint.send({
+    header: {
+      id: msg.header.id,
+      type: 'SbSessionRecoveryResponse',
+      recoveryKey: endpoint.recoveryKey
+    }
+  })
 }
 
 export const debug = {

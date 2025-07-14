@@ -11,6 +11,7 @@ export interface Message {
 
 export interface Endpoint {
   id: string
+  recoveryKey?: string
   clientIp: string
   isProvider$: rxjs.BehaviorSubject<boolean>
   waiters: Map<string, { responseId: unknown }>
@@ -18,6 +19,7 @@ export interface Endpoint {
   keepAlive$: rxjs.Observable<number>
   close$: rxjs.Observable<unknown>
   send(m: Message): void
+  close: Connection['close']
   debug: {
     connection: Connection
   }
@@ -64,6 +66,7 @@ export function makeEndpoint(ws: Connection, config: {
     send(msg) {
       ws.send(serialize(msg))
     },
+    close: ws.close.bind(ws),
     debug: {
       connection: ws
     }

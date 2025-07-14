@@ -59,4 +59,8 @@ export default {
     file: "stats.txt",
     interval: 5*60*1000
   },
+
+  recoveryKey: {
+    ttl: 5*60*1000
+  },
 }
