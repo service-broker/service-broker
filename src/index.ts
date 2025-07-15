@@ -394,11 +394,23 @@ function handleEndpointStatusRequest(msg: Message, endpoint: Endpoint) {
 }
 
 function handleEndpointWaitRequest(msg: Message, waiterEndpoint: Endpoint) {
+  //the use of request/response id is deprecated, retained only for backward compat
+  //clients should now use the target endpointId as the sole transaction identifier
+  //and rely on the response type for processing
   if (typeof msg.header.endpointId != 'string') throw 'BAD_REQUEST'
   const target = endpoints.get(msg.header.endpointId)
-  if (!target) throw "ENDPOINT_NOT_FOUND"
-  if (target.waiters.has(waiterEndpoint.id)) throw "ALREADY_WAITING"
-  target.waiters.set(waiterEndpoint.id, {responseId: msg.header.id})
+  if (target) {
+    target.waiters.set(waiterEndpoint.id, {responseId: msg.header.id})
+  } else {
+    waiterEndpoint.send({
+      header: {
+        id: msg.header.id,
+        type: "SbEndpointWaitResponse",
+        endpointId: msg.header.endpointId,
+        error: "ENDPOINT_NOT_FOUND"
+      }
+    })
+  }
 }
 
 export const debug = {
