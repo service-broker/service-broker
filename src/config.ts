@@ -3,7 +3,7 @@ import { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import { immediate } from "./util.js";
 
-dotenv.config();
+dotenv.config({ quiet: true })
 
 assert(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 

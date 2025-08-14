@@ -1,7 +1,7 @@
 import assert from "assert";
 import dotenv from "dotenv";
 import { immediate } from "./util.js";
-dotenv.config();
+dotenv.config({ quiet: true });
 assert(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
 export default {
     listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),

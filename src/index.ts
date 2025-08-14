@@ -277,7 +277,7 @@ function handleServiceRequest(msg: Message, endpoint: Endpoint) {
   if (typeof msg.header.service != 'object' || msg.header.service == null) throw 'BAD_REQUEST'
   assertRecord(msg.header.service)
   if (typeof msg.header.service.name != 'string') throw 'BAD_REQUEST'
-  if (typeof msg.header.service.capabilities != 'undefined' && !Array.isArray(msg.header.service.capabilities)) throw 'BAD_REQUEST'
+  if (msg.header.service.capabilities != null && !Array.isArray(msg.header.service.capabilities)) throw 'BAD_REQUEST'
   basicStats.inc(msg.header.method ? `${msg.header.service.name}/${msg.header.method}` : msg.header.service.name);
   msg.header.from = endpoint.id
   msg.header.ip = endpoint.clientIp
