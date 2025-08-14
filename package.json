@@ -16,14 +16,14 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.0.0",
-    "rate-limiter-flexible": "^7.1.1"
+    "express-rate-limit": "^8.0.1",
+    "rate-limiter-flexible": "^7.2.0"
   },
   "devDependencies": {
     "@service-broker/test-utils": "^1.0.5",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
-    "@types/node": "^24.0.14",
-    "typescript": "^5.8.3"
+    "@types/node": "^24.2.1",
+    "typescript": "^5.9.2"
   }
 }
