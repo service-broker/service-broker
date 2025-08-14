@@ -45,7 +45,7 @@ export function remove(endpoint: Endpoint) {
   }
 }
 
-export function find(name: string, requiredCapabilities: string[]|undefined) {
+export function find(name: string, requiredCapabilities: string[]|null|undefined) {
   const list = registry.get(name)
   if (list) {
     const capableProviders = requiredCapabilities
