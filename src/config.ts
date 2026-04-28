@@ -1,11 +1,18 @@
 import assert from "assert";
-import { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import { immediate } from "./util.js";
 
 dotenv.config({ quiet: true })
 
 assert(process.env.LISTENING_PORT || process.env.SSL_PORT, "Missing env LISTENING_PORT or SSL_PORT");
+
+export interface CorsOptions {
+  origin: string | RegExp
+  methods: string
+  allowedHeaders: string
+  exposedHeaders: string
+  maxAge: number
+}
 
 export default {
   listeningPort: (x => x ? Number(x) : undefined)(process.env.LISTENING_PORT),

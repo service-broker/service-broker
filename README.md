@@ -14,7 +14,7 @@ SSL_HOST | String | | SSL bind address
 SSL_CERT | String | | SSL certificate file
 SSL_KEY | String | | SSL private key file
 ALLOWED_ORIGINS | RegExp | '*' | Allowed CORS origins
-TRUST_PROXY | | | Express 'trust proxy' configuration parameter
+TRUST_PROXY | Number | 0 | Number of trusted proxy hops for `X-Forwarded-For` client IP resolution
 PROVIDER_AUTH_TOKEN | String | | Require providers to include matching `authToken` in advertise requests
 PROVIDER_PING_INTERVAL | Number | 15 seconds | How often to send pings (providers)
 NON_PROVIDER_PING_INTERVAL | Number | 5 minutes | How often to send pings (non-providers)

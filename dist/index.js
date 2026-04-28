@@ -1,7 +1,4 @@
 import * as ws from "@service-broker/websocket";
-import cors from "cors";
-import express from "express";
-import expressRateLimit from "express-rate-limit";
 import { readFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import http from "http";
@@ -14,18 +11,10 @@ import * as providerRegistry from "./provider.js";
 import * as subscriberRegistry from "./subscriber.js";
 import { StatsCounter, assertRecord, generateId, getClientIp, getStream, immediate, pTimeout, pickRandom } from "./util.js";
 const shutdown$ = new rxjs.Subject();
-const app = immediate(() => {
-    const app = express();
-    app.set("trust proxy", config.trustProxy);
-    app.use(cors(config.corsOptions));
-    app.get("/", (req, res) => res.end("Healthcheck OK"));
-    app.post("/:service", config.nonProviderRateLimit ? expressRateLimit(config.nonProviderRateLimit) : [], onHttpPost);
-    return app;
-});
 const httpServer = immediate(() => {
     if (config.listeningPort) {
         const { listeningPort: port, listeningHost: host } = config;
-        const server = http.createServer(app);
+        const server = http.createServer(onHttpRequest);
         server.listen(port, host, () => console.log(`HTTP listener started on ${host ?? "*"}:${port}`));
         return server;
     }
@@ -37,7 +26,7 @@ const httpsServer = immediate(() => {
             cert: readFileSync(certFile),
             key: readFileSync(keyFile)
         });
-        const server = https.createServer(readCerts(), app);
+        const server = https.createServer(readCerts(), onHttpRequest);
         server.listen(port, host, () => console.log(`HTTPS listener started on ${host ?? "*"}:${port}`));
         const timer = setInterval(() => server.setSecureContext(readCerts()), 24 * 3600 * 1000);
         server.once("close", () => clearInterval(timer));
@@ -48,6 +37,10 @@ const endpoints = new Map();
 const pendingResponse = new Map();
 const basicStats = new StatsCounter();
 const nonProviderRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemory({
+    points: config.nonProviderRateLimit.limit,
+    duration: config.nonProviderRateLimit.windowMs / 1000
+}) : null;
+const httpRateLimiter = config.nonProviderRateLimit ? new RateLimiterMemory({
     points: config.nonProviderRateLimit.limit,
     duration: config.nonProviderRateLimit.windowMs / 1000
 }) : null;
@@ -62,21 +55,62 @@ rxjs.merge(rxjs.iif(() => httpServer != null, makeWebSocketServer(httpServer), r
 })).subscribe({
     error: console.error
 });
-async function onHttpPost(req, res) {
+async function onHttpRequest(req, res) {
     try {
-        const service = req.params.service;
-        const capabilities = req.query.capabilities ? req.query.capabilities.split(',') : undefined;
-        const header = JSON.parse(req.get("x-service-request-header") || "{}");
-        const payload = await getStream(req)
-            .then(buffer => req.is(config.textMimes) ? buffer.toString() : buffer);
+        setCorsHeaders(req, res);
+        if (req.method == "OPTIONS") {
+            res.statusCode = 204;
+            res.end();
+            return;
+        }
+        if ((req.method == "GET" || req.method == "HEAD") && getPathname(req) == "/") {
+            res.end(req.method == "HEAD" ? undefined : "Healthcheck OK");
+            return;
+        }
+        if (req.method != "POST") {
+            res.statusCode = 404;
+            res.end("Not found");
+            return;
+        }
+        const service = getServiceName(req);
         if (!service) {
-            res.status(400).end("Missing args");
+            res.statusCode = 404;
+            res.end("Not found");
+            return;
+        }
+        if (httpRateLimiter) {
+            try {
+                await httpRateLimiter.consume(getClientIp(req, config.trustProxy));
+            }
+            catch {
+                res.statusCode = 429;
+                res.end("Too many requests");
+                return;
+            }
+        }
+        await onHttpPost(req, res, service);
+    }
+    catch (err) {
+        res.statusCode = 500;
+        res.end(err instanceof Error ? err.message : String(err));
+    }
+}
+async function onHttpPost(req, res, service) {
+    try {
+        const url = getRequestUrl(req);
+        const capabilities = url.searchParams.has("capabilities") ? (url.searchParams.get("capabilities") || "").split(',') : undefined;
+        const header = JSON.parse(getHeader(req, "x-service-request-header") || "{}");
+        const payload = await getStream(req)
+            .then(buffer => isTextRequest(req) ? buffer.toString() : buffer);
+        if (!service) {
+            res.statusCode = 400;
+            res.end("Missing args");
             return;
         }
         header.service = { name: service, capabilities };
         header.ip = getClientIp(req, config.trustProxy);
-        if (req.get("content-type"))
-            header.contentType = req.get("content-type");
+        if (getHeader(req, "content-type"))
+            header.contentType = getHeader(req, "content-type");
         //update stats
         basicStats.inc(header.method ? `${service}/${header.method}` : service);
         //if topic then broadcast
@@ -91,7 +125,8 @@ async function onHttpPost(req, res) {
         //find providers
         const providers = providerRegistry.find(service, capabilities);
         if (!providers.length) {
-            res.status(404).end("NO_PROVIDER " + service);
+            res.statusCode = 404;
+            res.end("NO_PROVIDER " + service);
             return;
         }
         //send to random provider
@@ -99,7 +134,7 @@ async function onHttpPost(req, res) {
         let promise = new Promise((fulfill, reject) => {
             pendingResponse.set(endpointId, res => res.header.error ? reject(res.header.error) : fulfill(res));
         });
-        promise = pTimeout(promise, Number(req.query.timeout || 15 * 1000));
+        promise = pTimeout(promise, Number(url.searchParams.get("timeout") || 15 * 1000));
         promise = promise.finally(() => pendingResponse.delete(endpointId));
         header.from = endpointId;
         if (!header.id)
@@ -108,24 +143,79 @@ async function onHttpPost(req, res) {
         if (provider.httpHeaders) {
             header.httpHeaders = {};
             for (const name of provider.httpHeaders)
-                header.httpHeaders[name] = req.get(name);
+                header.httpHeaders[name] = getHeader(req, name);
         }
         provider.endpoint.send({ header, payload });
         const msg = await promise;
         //forward the response
         if (typeof msg.header.contentType == 'string') {
-            res.set("content-type", msg.header.contentType);
+            res.setHeader("content-type", msg.header.contentType);
             delete msg.header.contentType;
         }
-        res.set("x-service-response-header", JSON.stringify(msg.header));
-        if (msg.payload)
-            res.send(msg.payload);
+        res.setHeader("x-service-response-header", JSON.stringify(msg.header));
+        if (msg.payload) {
+            setDefaultPayloadContentType(res, msg.payload);
+            res.end(msg.payload);
+        }
         else
             res.end();
     }
     catch (err) {
-        res.status(500).end(err instanceof Error ? err.message : String(err));
+        res.statusCode = 500;
+        res.end(err instanceof Error ? err.message : String(err));
     }
+}
+function setCorsHeaders(req, res) {
+    const { origin, methods, allowedHeaders, exposedHeaders, maxAge } = config.corsOptions;
+    const requestOrigin = getHeader(req, "origin");
+    if (origin == "*") {
+        res.setHeader("access-control-allow-origin", "*");
+    }
+    else if (requestOrigin && origin instanceof RegExp && origin.test(requestOrigin)) {
+        res.setHeader("access-control-allow-origin", requestOrigin);
+        res.setHeader("vary", "Origin");
+    }
+    res.setHeader("access-control-allow-methods", methods);
+    res.setHeader("access-control-allow-headers", allowedHeaders);
+    res.setHeader("access-control-expose-headers", exposedHeaders);
+    res.setHeader("access-control-max-age", String(maxAge));
+}
+function getRequestUrl(req) {
+    return new URL(req.url || "/", "http://localhost");
+}
+function getPathname(req) {
+    return getRequestUrl(req).pathname;
+}
+function getServiceName(req) {
+    const pathname = getPathname(req);
+    if (!/^\/[^/]+\/?$/.test(pathname))
+        return;
+    try {
+        return decodeURIComponent(pathname.replace(/^\/|\/$/g, ""));
+    }
+    catch {
+        return;
+    }
+}
+function getHeader(req, name) {
+    const value = req.headers[name.toLowerCase()];
+    return Array.isArray(value) ? value.join(",") : value;
+}
+function isTextRequest(req) {
+    const contentType = getHeader(req, "content-type")?.split(";")[0]?.trim().toLowerCase();
+    if (!contentType)
+        return false;
+    return config.textMimes.some(mime => mime.endsWith("/*")
+        ? contentType.startsWith(mime.slice(0, -1))
+        : contentType == mime);
+}
+function setDefaultPayloadContentType(res, payload) {
+    if (res.hasHeader("content-type"))
+        return;
+    if (typeof payload == "string")
+        res.setHeader("content-type", "text/html; charset=utf-8");
+    else if (Buffer.isBuffer(payload))
+        res.setHeader("content-type", "application/octet-stream");
 }
 function makeWebSocketServer(server) {
     return ws.makeServer({ server, verifyClient }).pipe(rxjs.exhaustMap(server => rxjs.merge(server.connection$.pipe(rxjs.map(con => makeEndpoint(con, config)), rxjs.mergeMap(handleConnect)), server.error$.pipe(rxjs.tap(event => console.error(event.error)))).pipe(rxjs.finalize(() => server.close()))));
