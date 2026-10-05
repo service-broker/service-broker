@@ -260,8 +260,16 @@ function makeWebSocketServer(server: typeof httpServer) {
     rxjs.exhaustMap(server =>
       rxjs.merge(
         server.connection$.pipe(
-          rxjs.map(con => makeEndpoint(con, config)),
-          rxjs.mergeMap(handleConnect)
+          rxjs.mergeMap(con =>
+            //an error escaping one connection would end this stream and close the listener
+            rxjs.defer(() => handleConnect(makeEndpoint(con, config))).pipe(
+              rxjs.catchError(err => {
+                console.error('Connection failed', err)
+                con.terminate()
+                return rxjs.EMPTY
+              })
+            )
+          )
         ),
         server.error$.pipe(
           rxjs.tap(event => console.error(event.error))
